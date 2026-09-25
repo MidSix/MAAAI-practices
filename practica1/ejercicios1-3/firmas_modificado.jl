@@ -244,74 +244,91 @@ end;
 # ----------------------------------------------------------------------------------------------
 # ------------------------------------- Ejercicio 2 --------------------------------------------
 # ----------------------------------------------------------------------------------------------
-#=
 using MLJ, LIBSVM, MLJLIBSVMInterface
 SVMClassifier = MLJ.@load SVC pkg=LIBSVM verbosity=0
 predict(model::Machine{MLJLIBSVMInterface.SVC, MLJLIBSVMInterface.SVC, true}, inputs::AbstractArray) = (outputs = MLJ.predict(model, MLJ.table(inputs)); return convert(Vector, levels(outputs)[int(outputs)]); )
 
-
-
 using Base.Iterators
 using StatsBase
+using Random: shuffle
 
 Batch = Tuple{AbstractArray{<:Real,2}, AbstractArray{<:Any,1}}
 
 
 function batchInputs(batch::Batch)
-    #
-    # Codigo a desarrollar
-    #
+    return batch[1]
 end;
 
 function batchTargets(batch::Batch)
-    #
-    # Codigo a desarrollar
-    #
+    return batch[2]
 end;
 
 function batchLength(batch::Batch)
-    #
-    # Codigo a desarrollar
-    #
+    return size(batchInputs(batch), 1)
 end;
 
 function selectInstances(batch::Batch, indices::Any)
-    #
-    # Codigo a desarrollar
-    #
+    idx = isa(indices, Integer) ? [indices] : indices
+    return (batchInputs(batch)[idx, :], batchTargets(batch)[idx])
 end;
 
 function joinBatches(batch1::Batch, batch2::Batch)
-    #
-    # Codigo a desarrollar
-    #
+    return (vcat(batchInputs(batch1), batchInputs(batch2)), vcat(batchTargets(batch1), batchTargets(batch2)))
 end;
 
 
 function divideBatches(dataset::Batch, batchSize::Int; shuffleRows::Bool=false)
-    #
-    # Codigo a desarrollar
-    #
+    N = batchLength(dataset)
+    indices = shuffleRows ? shuffle(1:N) : (1:N)
+    return [selectInstances(dataset, idx) for idx in Base.Iterators.partition(indices, batchSize)]
 end;
 
 function trainSVM(dataset::Batch, kernel::String, C::Real;
     degree::Real=1, gamma::Real=2, coef0::Real=0.,
     supportVectors::Batch=( Array{eltype(dataset[1]),2}(undef,0,size(dataset[1],2)) , Array{eltype(dataset[2]),1}(undef,0) ) )
-    #
-    # Codigo a desarrollar
-    #
+    
+    N = batchLength(supportVectors)
+    trainingData = joinBatches(supportVectors, dataset)
+
+    model = SVMClassifier( 
+        kernel =  
+            kernel=="linear"  ? LIBSVM.Kernel.Linear : 
+            kernel=="rbf"     ? LIBSVM.Kernel.RadialBasis : 
+            kernel=="poly"    ? LIBSVM.Kernel.Polynomial : 
+            kernel=="sigmoid" ? LIBSVM.Kernel.Sigmoid : nothing, 
+        cost   = Float64(C), 
+        gamma  = Float64(gamma), 
+        degree = Int32(  degree), 
+        coef0  = Float64(coef0))
+
+    mach = MLJ.machine(model,  
+        MLJ.table(batchInputs(trainingData)),  
+        MLJ.categorical(batchTargets(trainingData) ; levels = [false, true]))
+    MLJ.fit!(mach, verbosity=0)
+
+    indicesNewSupportVectors = sort( mach.fitresult[1].SVs.indices )
+
+    svIndices_old = indicesNewSupportVectors[indicesNewSupportVectors .<= N]
+    svIndices_new = indicesNewSupportVectors[indicesNewSupportVectors .> N] .- N
+
+    newSupportVectors = joinBatches(selectInstances(supportVectors, svIndices_old), selectInstances(dataset, svIndices_new))
+
+    return (mach, newSupportVectors, (svIndices_old, svIndices_new))
 end;
 
 function trainSVM(batches::AbstractArray{<:Batch,1}, kernel::String, C::Real;
     degree::Real=1, gamma::Real=2, coef0::Real=0.)
-    #
-    # Codigo a desarrollar
-    #
+    
+    firstBatch = batches[1]
+    local svs = ( Array{eltype(firstBatch[1]),2}(undef,0,size(firstBatch[1],2)) , Array{eltype(firstBatch[2]),1}(undef,0) )
+    local model
+    for batch in batches
+        model, svs, _ = trainSVM(batch, kernel, C; degree=degree, gamma=gamma, coef0=coef0, supportVectors=svs)
+    end
+    return model
 end;
 
-
-    
-
+#=
 # ----------------------------------------------------------------------------------------------
 # ------------------------------------- Ejercicio 3 --------------------------------------------
 # ----------------------------------------------------------------------------------------------

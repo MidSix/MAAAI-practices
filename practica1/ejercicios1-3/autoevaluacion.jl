@@ -98,7 +98,6 @@ inputs, targets = loadStreamLearningDataset(datasetFolder; datasetType=Float64)
 
 println(">>> ¡TODOS LOS TESTS DEL EJERCICIO 1 HAN PASADO CON ÉXITO! <<<")
 
-#=
 # ----------------------------------------------------------------------------------------------
 # ------------------------------------- Ejercicio 2 --------------------------------------------
 # ----------------------------------------------------------------------------------------------
@@ -155,8 +154,9 @@ model, newSupportVectors, newSupportVectorIndices = trainSVM( selectInstances(da
 model = trainSVM(divideBatches(dataset, 100; shuffleRows=false), "rbf", 10; gamma=4)
 @assert(findall(predict(model, batchInputs(selectInstances(dataset, 1:20)))) == 13:20)
 
+println(">>> ¡TODOS LOS TESTS DEL EJERCICIO 2 HAN PASADO CON ÉXITO! <<<")
 
-
+#=
 # ----------------------------------------------------------------------------------------------
 # ------------------------------------- Ejercicio 3 --------------------------------------------
 # ----------------------------------------------------------------------------------------------
