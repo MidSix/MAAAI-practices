@@ -1,0 +1,26 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "explication_of_code",
+  "steps": [
+    {
+      "file": "practica1/ejercicios1-3/firmas_modificado.jl",
+      "description": "**folderName:** path hasta la folder que contiene los datasets  \r\n**extension:**  es la extension que queremos buscar en ese path, es decir, si  \r\ntienes 2 de IQ puedes pasar por parametro \"mp4\" pero ese no es el  \r\nformato de extension de ningun dataset, como nosotros le sabemos  \r\nlo que pasamos sera \"tsv\", \"dat\", \"csv\". En este caso no tenemos  \r\nningun csv \"comma-separated-value\" porque en machine learning  \r\nes una buena practica usar \"tsv\" \"tab-separated-value\", es util  \r\nen caso de que por ejemplo haya numeros decimales.  \r\n",
+      "line": 10
+    },
+    {
+      "file": "practica1/ejercicios1-3/firmas_modificado.jl",
+      "description": "En la autoevaluacion ya manejamos este caso en el que la ruta  \r\nfolderName que contiene los datasets no se encuentra. tenemos  \r\nun assert que no se captura y pararia la ejecucion, pero  \r\nno siempre que se quiera ejecutar este modulo se hara con  \r\nla autoevaluacion al lado entonces esta bien poner esta  \r\n\r\n- condicion. El \"!\" simplemente es el not en Julia",
+      "line": 17
+    },
+    {
+      "file": "practica1/ejercicios1-3/firmas_modificado.jl",
+      "description": "condition ? if_true: if_false, es un operador ternario  \r\nBasicamente pongo la extension en mayusculas y compruebo si  \r\nempieza por punto, en caso de empezar por punto devuelvo  \r\nun array slice que empieza en el indice 2 (hay que recordar  \r\nque Julia indexa desde el indice 1 entonces el indice 1 seria  \r\nel \".\" en la extension en caso de que alguien haya escrito  \r\n\".tsv\" por error en lugar de simplemente \"tsv\"). En caso que no  \r\nempiece con punto simplemente retorna ya la extension ya  \r\nconvertida en mayusculas  ",
+      "line": 20
+    },
+    {
+      "file": "practica1/ejercicios1-3/firmas_modificado.jl",
+      "description": "filter(f, itr::SkipMissing{<:AbstractArray}) esta es la firma de  \r\nla funcion files, tiene dos parametros, una funcion y un iterable  \r\n- EL iterable es el resultado de readdir(folderName) ya que esto  \r\ndevuelve una lista con todos los nombres completos   \r\n(con extension y todo) de los datasets. \r\n- LA funcion es una funcion anonima, no se conoce su nombre porque  \r\nno interesa, solo sabemos que admite un parametro f. Ahora tenemos  \r\nque conocer como funciona filter por dentro, coge el iterable,  \r\nsu segundo parametro, y empieza a iterar, cada iteracion se la pasa  \r\na la funcion del primer parametro que puede o no ser anonima  \r\nlo que importa es que dicha funcion retorne un bool con el que pueda  \r\ndecidir si \"filtra\" o no ese elemento, es decir, si lo elimina o no  \r\ndel iterable que en este caso es un array con todos el nombre de todos  \r\nlos datasets de la carpeta datasets. Lo que se hace en cada iteracio es  \r\ncoger el nombre que extrajo del iterable, digamos que es  \r\n\"sonar.tsv\", se lo pasa a la funcion anonima, esta comprueba si termina  \r\ncon la extension que le pasamos a fileNamesFolder porque son los archivos  \r\nque tienen esa extension los que nos interesan.\r\n\r\nEjemplo:\r\nPaso 1: filter coge el primer elemento (\"sonar.tsv\").  \r\n→ Se lo pasa a tu función anónima haciendo: f = \"sonar.tsv\".   \r\nEvalúa si termina en .TSV: da true \r\n⟹ Se queda en la lista.\r\n\r\nPaso 2: filter coge el segundo elemento (\"elec2_data.dat\").  \r\n→ Se lo pasa a tu función anónima haciendo: f = \"elec2_data.dat\".   \r\n→ Evalúa si termina en .TSV: da false   \r\n⟹ Se descarta.  \r\n\r\nPaso 3: filter coge el tercer elemento (\"iris.tsv\").   \r\n→ Se lo pasa a tu función anónima haciendo: f = \"iris.tsv\".   \r\n→ Evalúa si termina en .TSV: da true   \r\n⟹ Se queda en la lista.  ",
+      "line": 21
+    }
+  ]
+}

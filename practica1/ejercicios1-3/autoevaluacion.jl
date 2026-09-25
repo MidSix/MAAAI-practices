@@ -21,30 +21,55 @@ de error en este script pero sea correcta, aunque esto es muy
 poco probable. Por este motivo, este archivo simplemente es de apoyo, 
 y no sustituye a la evaluación realizada en la entrega.
 # Archivo de pruebas para realizar autoevaluación de algunas funciones de los ejercicios
+=#
 
 # Importamos el archivo con las soluciones a los ejercicios
-include("soluciones.jl");
-#   Cambiar "soluciones.jl" por el nombre del archivo que contenga las funciones desarrolladas
-=#
-# %% 
+archivo_con_soluciones = joinpath(@__DIR__, "firmas_modificado.jl");
+include(archivo_con_soluciones);
+#   Cambiar "firmas_modificado.jl" por el nombre del archivo que 
+#   contenga las funciones desarrolladas
+
 println("Comprobando la versión de Julia, Random y SymDoME")
 
 # Fichero de pruebas realizado con la versión 1.11.2 de Julia
 println(VERSION)
 #  y la 1.11.3 de Random
 using Random; println(Random.VERSION)
+# ---> El profesor dice que ha usado una version de Julia y del paquete
+# Random que discrepan, esto no es posible porque Random es un 
+# paquete built-in que viene ligado con Julia, la version de todo
+# paquete built-in debe ser la misma que la de Julia, por lo que
+# ni idea de si escribio la version de Random mal o la de Julia mal xD.
+# Pero sea como sea la discrepancia es 1.11.x que simplemente son fixes
+# por lo que no debe afectar a los asserts, gemini tambien dice lo mismo
+# es seguro asumir que ya sea que se elija Julia 1.11.2 o 1.11.3
+# no debe afectar a los asserts. Para este caso elegi la 1.11.2 pero
+# la 1.11.3 deberia funcionar igual.
+
+
 #  y la versión 1.0.4 de SymDoME
 import Pkg
 Pkg.status("SymDoME")
-# %%
+
 # Es posible que con otras versiones los resultados sean distintos, estando las funciones bien, sobre todo en la funciones que implican alguna componente aleatoria
 
 # Para la correcta ejecución de este archivo, los datasets estarán en la siguiente carpeta:
-datasetFolder = "datasets";
+# se puede pasar el dataset dentro del directorio ejercicios1-3 
+# y simplemente escribir datasetFolder = "datasets" pero
+# tambien se puede simplemente subir un nivel el path y ya esta.
+# Simplemente tenemos que entregar el modulo de firmas, no la
+# autoevaluacion asi que da bastante igual que escribamos aqui.
+# datasetFolder = normpath(joinpath(@__DIR__, "..", "datasets"));
+datasetFolder = joinpath(@__DIR__, "datasets");
 # Cambiadla por la carpeta donde tengáis los datasets y las imágenes
 
+# isdir simplemente comprueba si el valor pasado por parametro que debe 
+# ser una ruta hacia un directorio existe, en caso que lo haga
+# gucci: true, si no lo hace not gucci:false, este booleano se le 
+# pasa al assert que si es true gucci y si es false lanza un excepcion 
+# que no se captura y por tanto detiene la ejecucion del script, 
+# esto es para comprobar que este modulo es capaz de usar los datasets.
 @assert(isdir(datasetFolder))
-
 # ----------------------------------------------------------------------------------------------
 # ------------------------------------- Ejercicio 1 --------------------------------------------
 # ----------------------------------------------------------------------------------------------
@@ -71,6 +96,9 @@ inputs, targets = loadStreamLearningDataset(datasetFolder; datasetType=Float64)
 @assert(eltype(inputs)==Float64)
 @assert(eltype(targets)==Bool)
 
+println(">>> ¡TODOS LOS TESTS DEL EJERCICIO 1 HAN PASADO CON ÉXITO! <<<")
+
+#=
 # ----------------------------------------------------------------------------------------------
 # ------------------------------------- Ejercicio 2 --------------------------------------------
 # ----------------------------------------------------------------------------------------------
@@ -182,4 +210,4 @@ accuracies = streamLearning_KNN(datasetFolder, 1000, 500, 9);
 @assert(length(accuracies) == 89);
 @assert(all(isapprox.(accuracies, [0.496, 0.652, 0.65, 0.638, 0.67, 0.644, 0.65, 0.738, 0.564, 0.676, 0.668, 0.636, 0.58, 0.656, 0.678, 0.718, 0.62, 0.73, 0.756, 0.706, 0.618, 0.648, 0.602, 0.602, 0.686, 0.786, 0.714, 0.77, 0.608, 0.598, 0.646, 0.748, 0.76, 0.694, 0.756, 0.784, 0.678, 0.79, 0.696, 0.7, 0.602, 0.75, 0.682, 0.662, 0.738, 0.642, 0.734, 0.682, 0.614, 0.672, 0.81, 0.818, 0.692, 0.67, 0.652, 0.594, 0.658, 0.622, 0.556, 0.69, 0.594, 0.676, 0.628, 0.71, 0.664, 0.646, 0.602, 0.588, 0.708, 0.752, 0.68, 0.662, 0.65, 0.732, 0.568, 0.72, 0.716, 0.67, 0.61, 0.662, 0.684, 0.75, 0.734, 0.642, 0.666, 0.568, 0.744, 0.79, 0.7660256410256411])))
 
-
+=#
