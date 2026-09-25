@@ -73,7 +73,7 @@ function fileNamesFolder(folderName::String, extension::String)
     #   `filter` se queda solo con los elementos para los que es `true`.
     # @note-body-end
     files = filter(f -> endswith(uppercase(f), ".$ext"), readdir(folderName))
-    # @note-end
+    # @note-end.
     return String.(map(f -> f[1:end-(length(ext)+1)], files))
 end;
 
