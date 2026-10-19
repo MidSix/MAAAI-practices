@@ -1567,11 +1567,11 @@ function streamLearning_KNN(datasetFolder::String, windowSize::Int, batchSize::I
 end;
 
 
-#=
 # ----------------------------------------------------------------------------------------------
 # ------------------------------------- Ejercicio 4 --------------------------------------------
 # ----------------------------------------------------------------------------------------------
 
+using Statistics: mean
 
 abstract type ModelTree end
 
@@ -1589,66 +1589,236 @@ struct ModelTreeLeaf <: ModelTree
 end
 
 
+# @note-start id=mse01 color=blue
+# mse: error cuadrático medio (Mean Squared Error)
+# Calcula el promedio de las diferencias al cuadrado entre las predicciones `outputs`
+# y los valores reales `targets`:
+#
+# $$
+# \text{MSE} = \frac{1}{N} \sum_{i=1}^N (\hat{y}_i - y_i)^2
+# $$
+#
+# **Entradas**
+# - `outputs`: `Union{Real, AbstractVector{<:Real}}`, predicciones (escalar o vector).
+# - `targets`: `AbstractVector{<:Real}`, valores reales deseadas.
+#
+# **Salida**
+# - `Real`: valor numérico con el MSE, del mismo tipo que los datos.
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function mse(outputs::Union{Real,AbstractVector{<:Real}}, targets::AbstractVector{<:Real})
-    #
-    # Codigo a desarrollar
-    #
+    return mean((outputs .- targets).^2)
 end;
 
+# @note-start id=ct01 color=blue
+# candidateThresholds: generación de umbrales candidatos de división
+# Calcula los puntos medios entre valores únicos consecutivos ordenados de un atributo `x`:
+#
+# $$
+# t_i = \frac{u_i + u_{i+1}}{2}
+# $$
+#
+# **Entradas**
+# - `x`: `AbstractVector{<:Real}`, vector de valores de un atributo.
+#
+# **Salida**
+# - `Vector{<:Real}`: vector ordenado con los umbrales candidatos, del mismo tipo que `x`.
+#   Si hay 1 o 0 valores únicos, devuelve un vector vacío `eltype(x)[]`.
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function candidateThresholds(x::AbstractVector{<:Real})
-    #
-    # Codigo a desarrollar
-    #
+    u = sort(unique(x))
+    if length(u) <= 1
+        return eltype(x)[]
+    end
+    return (u[1:end-1] .+ u[2:end]) ./ 2
 end;
 
+# @note-start id=sdm01 color=blue
+# splitDataset: división de una matriz de datos por atributo y umbral
+# Divide `inputs` en dos subconjuntos según $x_j \le t$ y $x_j > t$.
+#
+# **Entradas**
+# - `inputs`: `AbstractMatrix{<:Real}`, matriz de características.
+# - `numFeature`: `Int`, índice del atributo $j$.
+# - `threshold`: `Real`, valor del umbral $t$.
+#
+# **Salida**
+# - `Tuple`: `(leftInputs, rightInputs, mask)` donde `mask` es el vector booleano con los
+#   índices del primer subconjunto.
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
+function splitDataset(inputs::AbstractMatrix{<:Real}, numFeature::Int, threshold::Real)
+    mask = inputs[:, numFeature] .<= threshold
+    return (inputs[mask, :], inputs[.!mask, :], mask)
+end;
+
+# @note-start id=sdb01 color=blue
+# splitDataset: división de un Batch por atributo y umbral
+# Divide `dataset` en dos subconjuntos de tipo `Batch` según $x_j \le t$ y $x_j > t$.
+#
+# **Entradas**
+# - `dataset`: `Batch`, lote de datos a dividir.
+# - `numFeature`: `Int`, índice del atributo $j$.
+# - `threshold`: `Real`, valor del umbral $t$.
+#
+# **Salida**
+# - `Tuple`: `(leftBatch, rightBatch, mask)`.
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function splitDataset(dataset::Batch, numFeature::Int, threshold::Real)
-    #
-    # Codigo a desarrollar
-    #
-end
+    _, _, mask = splitDataset(batchInputs(dataset), numFeature, threshold)
+    return (selectInstances(dataset, mask), selectInstances(dataset, .!mask), mask)
+end;
 
+# @note-start id=ces01 color=blue
+# calculateErrorSplit: cálculo del error ponderado tras una partición
+# Divide el dataset y calcula la suma ponderada del MSE de cada subconjunto:
+#
+# $$
+# E(j, t) = N_L \cdot \text{MSE}_L + N_R \cdot \text{MSE}_R
+# $$
+#
+# **Entradas**
+# - `dataset`: `Batch`, conjunto de entrenamiento.
+# - `numFeature`: `Int`, índice del atributo $j$.
+# - `threshold`: `Real`, umbral de división $t$.
+#
+# **Salida**
+# - `Real`: error ponderado de la partición (del tipo del dataset).
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function calculateErrorSplit(dataset::Batch, numFeature::Int, threshold::Real)
-    #
-    # Codigo a desarrollar
-    #
+    leftBatch, rightBatch, _ = splitDataset(dataset, numFeature, threshold)
+    nLeft = batchLength(leftBatch)
+    nRight = batchLength(rightBatch)
+    if nLeft == 0 || nRight == 0
+        return convert(eltype(batchInputs(dataset)), Inf)
+    end
+    errLeft = mse(mean(batchTargets(leftBatch)), batchTargets(leftBatch))
+    errRight = mse(mean(batchTargets(rightBatch)), batchTargets(rightBatch))
+    return convert(eltype(batchInputs(dataset)), nLeft * errLeft + nRight * errRight)
 end;
 
+# @note-start id=bs01 color=blue
+# bestSplit: búsqueda exhaustiva de la mejor partición (atributo y umbral)
+# Evalúa todos los atributos y sus umbrales candidatos minimizando el error de partición.
+#
+# **Entradas**
+# - `dataset`: `Batch`, conjunto de entrenamiento.
+#
+# **Salida**
+# - `Tuple{Int, Real}`: `(bestFeature, bestThreshold)`. Si no mejora el error o $N \le 1$, devuelve `(-1, NaN)`.
+#
+# **Restricciones:** máximo 2 bucles anidados permitidos (atributos y umbrales).
+# @note-body-end
 function bestSplit(dataset::Batch)
-    #
-    # Codigo a desarrollar
-    #
+    n = batchLength(dataset)
+    T = eltype(batchInputs(dataset))
+    if n <= 1
+        return (-1, convert(T, NaN))
+    end
+
+    bestError = n * mse(mean(batchTargets(dataset)), batchTargets(dataset))
+    bestFeature = -1
+    bestThreshold = convert(T, NaN)
+
+    inputs = batchInputs(dataset)
+    numFeatures = size(inputs, 2)
+
+    for j in 1:numFeatures
+        thresholds = candidateThresholds(inputs[:, j])
+        for t in thresholds
+            err = calculateErrorSplit(dataset, j, t)
+            if err < bestError
+                bestError = err
+                bestFeature = j
+                bestThreshold = t
+            end
+        end
+    end
+
+    return (bestFeature, bestThreshold)
 end;
 
-
+# @note-start id=brt01 color=blue
+# buildRegressionTree: construcción recursiva de un árbol de regresión
+# Construye un árbol de tipo `ModelTree` dividiendo recursivamente el dataset por `bestSplit`
+# hasta cumplir criterios de parada (`max_depth == 0`, `n <= min_samples_leaf`, o no haber split de mejora).
+#
+# **Entradas**
+# - `dataset`: `Batch`, conjunto de entrenamiento.
+# - `max_depth`: `Int = -1`, profundidad máxima permitida.
+# - `min_samples_leaf`: `Int = 1`, número mínimo de instancias por hoja.
+#
+# **Salida**
+# - `ModelTree`: raíz del árbol (`ModelTreeNode` o `ModelTreeLeaf`).
+#
+# **Restricciones:** 0 bucles permitidos (algoritmo recursivo).
+# @note-body-end
 function buildRegressionTree(dataset::Batch;
     max_depth        :: Int = -1,
     min_samples_leaf :: Int =  1
 )
-    #
-    # Codigo a desarrollar
-    #
+    n = batchLength(dataset)
+    meanTarget = mean(batchTargets(dataset))
+
+    if n <= min_samples_leaf || max_depth == 0
+        return ModelTreeLeaf(meanTarget, n)
+    end
+
+    feature, threshold = bestSplit(dataset)
+    if feature == -1
+        return ModelTreeLeaf(meanTarget, n)
+    end
+
+    leftDataset, rightDataset, _ = splitDataset(dataset, feature, threshold)
+    leftChild = buildRegressionTree(leftDataset; max_depth = max_depth - 1, min_samples_leaf = min_samples_leaf)
+    rightChild = buildRegressionTree(rightDataset; max_depth = max_depth - 1, min_samples_leaf = min_samples_leaf)
+
+    return ModelTreeNode(feature, threshold, meanTarget, leftChild, rightChild)
 end;
 
-function predict(model::Real, inputs::AbstractMatrix{<:Real})
-    #
-    # Codigo a desarrollar
-    #
-end;
+# @note-start id=prd01 color=blue
+# predict: predicción con valor escalar
+# Devuelve un vector constante con el valor `model` para cada fila de `inputs`.
+# @note-body-end
+predict(model::Real, inputs::AbstractMatrix{<:Real}) = fill(model, size(inputs, 1))
 
-function predict(tree::ModelTreeLeaf, inputs::AbstractMatrix{<:Real})
-    #
-    # Codigo a desarrollar
-    #
-end;
+# @note-start id=prd02 color=blue
+# predict: predicción en nodo hoja
+# Delega la predicción en el modelo interno almacenado en la hoja `tree.model`.
+# @note-body-end
+predict(tree::ModelTreeLeaf, inputs::AbstractMatrix{<:Real}) = predict(tree.model, inputs)
 
+# @note-start id=prd03 color=blue
+# predict: predicción en nodo interno de decisión
+# Divide las instancias por el umbral del nodo, predice recursivamente en cada subárbol
+# y ensambla las predicciones vectorialmente en el orden original.
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function predict(tree::ModelTreeNode, inputs::AbstractMatrix{<:Real})
-    #
-    # Codigo a desarrollar
-    #
+    leftInputs, rightInputs, mask = splitDataset(inputs, tree.feature, tree.threshold)
+    if all(mask)
+        return predict(tree.leftChild, inputs)
+    elseif !any(mask)
+        return predict(tree.rightChild, inputs)
+    end
+    leftPreds = predict(tree.leftChild, leftInputs)
+    rightPreds = predict(tree.rightChild, rightInputs)
+    preds = Vector{promote_type(eltype(leftPreds), eltype(rightPreds))}(undef, size(inputs, 1))
+    preds[mask] = leftPreds
+    preds[.!mask] = rightPreds
+    return preds
 end;
 
-
-
+#=
 # ----------------------------------------------------------------------------------------------
 # ------------------------------------- Ejercicio 5 --------------------------------------------
 # ----------------------------------------------------------------------------------------------
