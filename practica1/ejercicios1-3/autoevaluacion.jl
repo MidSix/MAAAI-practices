@@ -210,3 +210,151 @@ accuracies = streamLearning_KNN(datasetFolder, 1000, 500, 9);
 @assert(all(isapprox.(accuracies, [0.496, 0.652, 0.65, 0.638, 0.67, 0.644, 0.65, 0.738, 0.564, 0.676, 0.668, 0.636, 0.58, 0.656, 0.678, 0.718, 0.62, 0.73, 0.756, 0.706, 0.618, 0.648, 0.602, 0.602, 0.686, 0.786, 0.714, 0.77, 0.608, 0.598, 0.646, 0.748, 0.76, 0.694, 0.756, 0.784, 0.678, 0.79, 0.696, 0.7, 0.602, 0.75, 0.682, 0.662, 0.738, 0.642, 0.734, 0.682, 0.614, 0.672, 0.81, 0.818, 0.692, 0.67, 0.652, 0.594, 0.658, 0.622, 0.556, 0.69, 0.594, 0.676, 0.628, 0.71, 0.664, 0.646, 0.602, 0.588, 0.708, 0.752, 0.68, 0.662, 0.65, 0.732, 0.568, 0.72, 0.716, 0.67, 0.61, 0.662, 0.684, 0.75, 0.734, 0.642, 0.666, 0.568, 0.744, 0.79, 0.7660256410256411])))
 
 println(">>> ¡TODOS LOS TESTS DEL EJERCICIO 3 HAN PASADO CON ÉXITO! <<<")
+
+# ==============================================================================================
+# ====================== TESTS ADICIONALES (NO SON DEL PROFESOR) ===============================
+# ==============================================================================================
+# Todo lo que hay por encima de esta línea son los tests originales del profesor, sin modificar.
+# Estos tests cubren requisitos del enunciado que los anteriores no comprueban.
+# Se ejecutan al final y trabajan sobre copias (deepcopy) para no alterar `memory`, `batchList`,
+# `dataset`, etc., de los que dependen los tests originales.
+
+using DelimitedFiles
+
+# ------------------------------------- Ejercicio 1 --------------------------------------------
+
+# loadDataset: tipo por defecto (Float64) en las entradas
+inputsD, targetsD = loadDataset("sonar", datasetFolder);
+@assert(eltype(inputsD) == Float64)
+@assert(eltype(targetsD) == Bool)
+
+# loadDataset: en un dataset de regresión las salidas deseadas son del tipo datasetType, no Bool
+inputsR, targetsR = loadDataset("ESL", datasetFolder; datasetType=Float32);
+@assert(eltype(inputsR) == Float32)
+@assert(eltype(targetsR) == Float32)
+
+# loadDataset: si el archivo no existe devuelve nothing
+@assert(isnothing(loadDataset("dataset_que_no_existe", datasetFolder)))
+
+# datasetsDescription: 3 columnas, 30 datasets de cada tipo, ordenados por instancias*atributos
+descC = datasetsDescription(datasetFolder, true);
+descR = datasetsDescription(datasetFolder, false);
+@assert(size(descC) == (30, 3))
+@assert(size(descR) == (30, 3))
+@assert(issorted(descC[:,2] .* descC[:,3]))
+@assert(issorted(descR[:,2] .* descR[:,3]))
+@assert(sort(vcat(descC[:,1], descR[:,1])) == sort(datasetFileNames))
+@assert(all(n -> eltype(loadDataset(n, datasetFolder)[2]) == Bool, descC[:,1]))
+@assert(all(n -> eltype(loadDataset(n, datasetFolder)[2]) != Bool, descR[:,1]))
+@assert(descC[findfirst(==("sonar"), descC[:,1]), 2:3] == [208, 60])
+
+# cyclicalEncoding: caso discreto con salto distinto de 1 (estaciones del enunciado, m = 0.25)
+sinS, cosS = cyclicalEncoding([0, 0.25, 0.5, 0.75]);
+@assert(all(isapprox.(sinS, [0.0, 1.0, 0.0, -1.0]; atol=1e-10)))
+@assert(all(isapprox.(cosS, [1.0, 0.0, -1.0, 0.0]; atol=1e-10)))
+
+# cyclicalEncoding: caso continuo (m = 0), el máximo cae en 2π y coincide con el mínimo
+sinC, cosC = cyclicalEncoding([0.0, 0.1, 0.35, 1.0]);
+@assert(isapprox(sinC[end], sinC[1]; atol=1e-10))
+@assert(isapprox(cosC[end], cosC[1]; atol=1e-10))
+@assert(all(isapprox.(sinC[2:3], sin.(2pi .* [0.1, 0.35]))))
+
+# loadStreamLearningDataset: tipo por defecto y orden de columnas (sin, cos, period, nswdemand, vicprice, vicdemand, transfer)
+rawElecInputs  = readdlm(joinpath(datasetFolder, "elec2_data.dat"));
+rawElecTargets = readdlm(joinpath(datasetFolder, "elec2_label.dat"));
+inputsE, targetsE = loadStreamLearningDataset(datasetFolder);
+@assert(eltype(inputsE) == Float64)
+sinE, cosE = cyclicalEncoding(rawElecInputs[:,2]);
+@assert(all(isapprox.(inputsE[:,1], sinE)))
+@assert(all(isapprox.(inputsE[:,2], cosE)))
+@assert(inputsE[:,3:7] == rawElecInputs[:,[3,5,6,7,8]])
+@assert(targetsE == vec(Bool.(rawElecTargets)))
+
+println(">>> Tests adicionales del ejercicio 1: OK <<<")
+
+# ------------------------------------- Ejercicio 2 --------------------------------------------
+
+datasetSonar = loadDataset("sonar", datasetFolder; datasetType=Float64);
+
+# divideBatches: si batchSize divide exactamente al número de instancias no aparece un lote vacío al final
+@assert(batchLength.(divideBatches(datasetSonar, 104; shuffleRows=false)) == [104, 104])
+# divideBatches: con batchSize mayor que el dataset se devuelve un único lote con todo
+@assert(divideBatches(datasetSonar, 1000; shuffleRows=false) == [datasetSonar])
+
+# divideBatches con shuffleRows=true: se desordena, pero cada fila de entradas sigue con su salida deseada
+seed!(1); shuffledBatches = divideBatches(datasetSonar, 100; shuffleRows=true);
+@assert(batchLength.(shuffledBatches) == [100, 100, 8])
+shuffledInputs  = reduce(vcat, batchInputs.(shuffledBatches));
+shuffledTargets = reduce(vcat, batchTargets.(shuffledBatches));
+@assert(shuffledInputs != batchInputs(datasetSonar))
+@assert(sortslices(hcat(shuffledInputs, shuffledTargets), dims=1) == sortslices(hcat(batchInputs(datasetSonar), batchTargets(datasetSonar)), dims=1))
+
+# trainSVM (versión incremental): equivale a encadenar a mano llamadas a trainSVM con los vectores de soporte
+sonarBatches = divideBatches(datasetSonar, 100; shuffleRows=false);
+_, svs1, _ = trainSVM(sonarBatches[1], "rbf", 10; gamma=4);
+_, svs2, _ = trainSVM(sonarBatches[2], "rbf", 10; gamma=4, supportVectors=svs1);
+manualModel, _, _ = trainSVM(sonarBatches[3], "rbf", 10; gamma=4, supportVectors=svs2);
+incrementalModel = trainSVM(sonarBatches, "rbf", 10; gamma=4);
+@assert(predict(incrementalModel, batchInputs(datasetSonar)) == predict(manualModel, batchInputs(datasetSonar)))
+
+# trainSVM con kernel lineal: mismas invariantes que con rbf/poly, índices de tipo Integer
+_, svsLin, idxLin = trainSVM(sonarBatches[1], "linear", 1);
+_, svsLin2, idxLin2 = trainSVM(sonarBatches[2], "linear", 1; supportVectors=svsLin);
+@assert(eltype(idxLin2[1]) <: Integer && eltype(idxLin2[2]) <: Integer)
+@assert(issorted(idxLin2[1]) && issorted(idxLin2[2]))
+@assert(batchLength(svsLin2) == length(idxLin2[1]) + length(idxLin2[2]))
+@assert(joinBatches(selectInstances(svsLin, idxLin2[1]), selectInstances(sonarBatches[2], idxLin2[2])) == svsLin2)
+
+println(">>> Tests adicionales del ejercicio 2: OK <<<")
+
+# ------------------------------------- Ejercicio 3 --------------------------------------------
+
+fullElec = loadStreamLearningDataset(datasetFolder);
+memI, batchListI = initializeStreamLearningData(datasetFolder, 1000, 100);
+
+# initializeStreamLearningData: la memoria son las primeras windowSize instancias y los lotes el resto, sin desordenar
+@assert(memI == selectInstances(fullElec, 1:1000))
+@assert(reduce(vcat, batchInputs.(batchListI)) == batchInputs(fullElec)[1001:end, :])
+@assert(reduce(vcat, batchTargets.(batchListI)) == batchTargets(fullElec)[1001:end])
+@assert(all(batchLength.(batchListI[1:end-1]) .== 100))
+@assert(batchLength(batchListI[end]) == 12)
+
+# addBatch!: desplaza la memoria hacia el principio (descarta lo más antiguo) y añade el lote al final, en el mismo orden
+memA = deepcopy(memI); oldA = deepcopy(memI);
+inputsArrayA, targetsArrayA = memA;   # referencias a los arrays originales, para comprobar que se modifica in-place
+addBatch!(memA, batchListI[1]);
+@assert(batchLength(memA) == 1000)
+@assert(inputsArrayA[1:900, :] == batchInputs(oldA)[101:1000, :])
+@assert(targetsArrayA[1:900] == batchTargets(oldA)[101:1000])
+@assert(inputsArrayA[901:1000, :] == batchInputs(batchListI[1]))
+@assert(targetsArrayA[901:1000] == batchTargets(batchListI[1]))
+
+# addBatch!: con el último lote, que es más pequeño que batchSize
+memL = deepcopy(memI);
+addBatch!(memL, batchListI[end]);
+@assert(batchInputs(memL)[1:988, :] == batchInputs(memI)[13:1000, :])
+@assert(batchInputs(memL)[989:1000, :] == batchInputs(batchListI[end]))
+@assert(batchTargets(memL)[989:1000] == batchTargets(batchListI[end]))
+
+# addBatch!: lote del mismo tamaño que la memoria (caso windowSize == batchSize de la experimentación): se reemplaza entera
+memF = deepcopy(memI);
+addBatch!(memF, selectInstances(fullElec, 2001:3000));
+@assert(memF == selectInstances(fullElec, 2001:3000))
+
+# euclideanDistances: ejemplo calculable a mano, y una distancia por instancia del batch
+toyBatch = ([0.0 0.0; 3.0 4.0; 1.0 1.0], [false, true, true]);
+@assert(all(isapprox.(euclideanDistances(toyBatch, [0.0, 0.0]), [0.0, 5.0, sqrt(2)])))
+@assert(length(euclideanDistances(memI, batchInputs(batchListI[1])[1,:])) == batchLength(memI))
+
+# nearestElements: ordenados de menor a mayor distancia, y caso k = 1
+@assert(nearestElements(toyBatch, [0.9, 0.9], 2) == ([1.0 1.0; 0.0 0.0], [true, false]))
+@assert(nearestElements(toyBatch, [2.9, 3.9], 1) == ([3.0 4.0], [true]))
+
+# predictKNN: devuelve el mismo tipo que las salidas deseadas del batch (aquí String, no Bool)
+toyBatchStr = ([0.0 0.0; 3.0 4.0; 1.0 1.0; 0.1 0.1], ["a", "b", "b", "a"]);
+@assert(predictKNN(toyBatchStr, [0.0, 0.0], 3) == "a")
+@assert(predictKNN(toyBatchStr, [3.0, 3.0], 1) == "b")
+@assert(predictKNN(toyBatchStr, [0.0 0.0; 3.0 3.0], 1) == ["a", "b"])
+@assert(isa(predictKNN(toyBatchStr, [0.0 0.0; 3.0 3.0], 1), Vector{String}))
+
+println(">>> Tests adicionales del ejercicio 3: OK <<<")
