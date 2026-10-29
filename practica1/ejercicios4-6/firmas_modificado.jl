@@ -1818,7 +1818,6 @@ function predict(tree::ModelTreeNode, inputs::AbstractMatrix{<:Real})
     return preds
 end;
 
-#=
 # ----------------------------------------------------------------------------------------------
 # ------------------------------------- Ejercicio 5 --------------------------------------------
 # ----------------------------------------------------------------------------------------------
@@ -1828,118 +1827,917 @@ EpsilonSVR = MLJ.@load EpsilonSVR pkg=LIBSVM verbosity=0
 predict(model::Machine{MLJLIBSVMInterface.EpsilonSVR, MLJLIBSVMInterface.EpsilonSVR, true}, inputs::AbstractArray) = MLJ.predict(model, inputs)
 
 using SymDoME
+# @note-start id=k5dm1q color=blue
+# predict: evalúa un modelo simbólico DoME sobre una matriz
+# Aplica la expresión simbólica obtenida con DoME a cada fila de `inputs` y
+# devuelve una predicción por instancia. Da a los modelos DoME la misma interfaz
+# `predict(modelo, inputs)` que al resto de modelos de regresión.
+#
+# **API pública** (la llama la autoevaluación). También la usan las hojas y los
+# nodos de un árbol de modelos y el kNN híbrido (Ejercicio 6) cuando su modelo
+# interno es `:DoME`.
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `model` | `SymDoME.Tree` | Expresión simbólica entrenada con `dome`. |
+# | `inputs` | `AbstractMatrix{<:Real}` | Instancias en filas, atributos en columnas. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `AbstractVector{<:Real}` | Una predicción por fila de `inputs`. |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function predict(model::SymDoME.Tree, inputs::AbstractMatrix{<:Real})
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=p8xr3t color=yellow
+    # evaluateTree: evaluar la expresión sobre todas las filas
+    # `evaluateTree(model, inputs)` es la función de SymDoME que aplica la
+    # expresión. Por defecto entiende que cada instancia es una fila
+    # (`dataInRows=true`), igual que nuestros `Batch`.
+    # @note-body-end
+    outputs = evaluateTree(model, inputs)
+    # @note-end
+    # @note-start id=z2lw7c color=yellow
+    # Caso especial: la expresión es una constante
+    # Si la expresión no depende de ningún atributo (por ejemplo $f(x) = 3.2$),
+    # `evaluateTree` devuelve un **escalar** en vez de un vector. Como `predict`
+    # siempre debe devolver un valor por instancia, se repite con
+    # `fill(outputs, size(inputs, 1))`. Si ya es un vector, se devuelve tal cual.
+    # @note-body-end
+    return isa(outputs, Real) ? fill(outputs, size(inputs, 1)) : outputs
+    # @note-end
 end;
 
 LinearModel = Tuple{Real, AbstractArray{<:Real,1}}
+# @note-start id=m4nv9b color=blue
+# predict: aplica un modelo lineal a una matriz
+# Calcula la salida de un modelo lineal para cada fila de `inputs`:
+#
+# $$
+# \hat{y} = X \, w + b
+# $$
+#
+# donde $b$ es el término libre y $w$ el vector de coeficientes.
+#
+# **API pública** (la llama la autoevaluación). También la usan los árboles de
+# modelos y el kNN híbrido cuando el modelo interno es `:linear`.
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `model` | `LinearModel` | Tupla `(b, w)`: término libre y coeficientes (uno por atributo). |
+# | `inputs` | `AbstractMatrix{<:Real}` | Instancias en filas, atributos en columnas. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `AbstractVector{<:Real}` | Una predicción por fila de `inputs`. |
+#
+# **Errores:** `DimensionMismatch` si `length(w)` no coincide con el número de
+# columnas de `inputs`.
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function predict(model::LinearModel, inputs::AbstractMatrix{<:Real})
+# @note-end
+    # @note-start id=f6gh2j color=yellow
+    # Desempaquetar la tupla del modelo
+    # `LinearModel` es una tupla de dos elementos. Con `a, b = tupla` se separa
+    # en el término libre (`intercept`, escalar) y los coeficientes
+    # (`coefficients`, vector).
+    # @note-body-end
+    intercept, coefficients = model
+    # @note-end
+    # @note-start id=t3qy8e color=yellow
+    # Producto matricial + término libre
+    # `inputs * coefficients` es un producto matriz-vector:
+    # $(N \times d) \cdot (d) \to (N)$, es decir, la combinación lineal de los
+    # atributos de todas las filas a la vez, sin bucles.
     #
-    # Codigo a desarrollar
-    #
+    # `.+ intercept` suma (con *broadcasting*) el término libre a cada elemento.
+    # @note-body-end
+    return inputs * coefficients .+ intercept
+    # @note-end
 end;
 
 
+# @note-start id=b7ks4w color=blue
+# trainRegressionModel: entrena cualquier modelo según su configuración
+# Punto de entrada genérico para entrenar modelos de regresión. **No entrena
+# nada**: lee el tipo de modelo de `configuration["modelType"]` y delega en el
+# método especializado de ese tipo.
+#
+# **API pública** (la llama la autoevaluación). La usan también `buildModelTree`
+# (modelos internos del árbol) y el kNN híbrido (modelos global y local).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `configuration` | `Dict` | Claves `String`. `"modelType"` es un `Symbol` (`:constant`, `:linear`, `:DoME`, `:SVR`, `:ModelTree`, `:KNN`); el resto son hiperparámetros del modelo. |
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Any` | El modelo entrenado; su tipo depende de `"modelType"`. |
+#
+# **Errores:** `KeyError` si falta `"modelType"`; `MethodError` si no hay
+# método para ese tipo de modelo.
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function trainRegressionModel(configuration::Dict, dataset::Batch)
+# @note-end
+    # @note-start id=x9cp5d color=yellow
+    # Val: convertir un valor en un tipo para el despacho múltiple
+    # Julia elige qué método ejecutar según los **tipos** de los argumentos, no
+    # según sus valores. `Val(:linear)` crea un objeto de tipo `Val{:linear}`,
+    # así que esta llamada salta automáticamente al método
+    # `trainRegressionModel(::Val{:linear}, …)`.
     #
-    # Codigo a desarrollar
-    #
+    # Ventaja: para añadir un modelo nuevo basta con definir un método nuevo, sin
+    # tocar esta función (ni una cadena de `if`).
+    # @note-body-end
+    return trainRegressionModel(Val(configuration["modelType"]), configuration, dataset)
+    # @note-end
 end;
 
+# @note-start id=n1ru6h color=blue
+# trainRegressionModel: modelo constante (media de los targets)
+# El modelo más simple posible: predice siempre la media de las salidas
+# deseadas. Es el que usan los árboles de regresión del Ejercicio 4 y el kNN
+# clásico (media de los vecinos).
+#
+# **API pública** (se llega a ella desde `trainRegressionModel(configuration, dataset)`
+# con `"modelType" => :constant`).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `::Val{:constant}` | `Val{:constant}` | Selector del método (no se usa su valor). |
+# | `configuration` | `Dict` | No necesita más claves. |
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Real` | Media de `batchTargets(dataset)`, del tipo de los *targets*. Se predice con `predict(::Real, inputs)` del Ejercicio 4. |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function trainRegressionModel(::Val{:constant}, configuration::Dict, dataset::Batch)
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=j4fz0m color=yellow
+    # Media de las salidas deseadas
+    # `mean` (de `Statistics`) del vector de *targets*. Con *targets* `Float64`
+    # devuelve un `Float64`; con `Float32`, un `Float32`.
+    # @note-body-end
+    return mean(batchTargets(dataset))
+    # @note-end
 end;
 
+# @note-start id=w5ta3k color=blue
+# trainRegressionModel: modelo lineal por mínimos cuadrados
+# Ajusta $\hat{y} = X w + b$ resolviendo el sistema por mínimos cuadrados con el
+# operador `\`:
+#
+# $$
+# [\,\mathbf{1} \;\; X\,] \begin{bmatrix} b \\ w \end{bmatrix} \approx y
+# $$
+#
+# **API pública** (se llega a ella con `"modelType" => :linear`). Es el modelo de
+# las hojas en los algoritmos originales M5 / M5'.
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `::Val{:linear}` | `Val{:linear}` | Selector del método. |
+# | `configuration` | `Dict` | No necesita más claves. |
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `LinearModel` | Tupla `(b, w)` con elementos del mismo tipo que las entradas del dataset. |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function trainRegressionModel(::Val{:linear}, configuration::Dict, dataset::Batch)
+# @note-end
+    # @note-start id=c8ye7p color=yellow
+    # Entradas y su tipo de elemento
+    # `T` (por ejemplo `Float64` o `Float32`) se usa para que la columna de unos y
+    # el modelo devuelto tengan el mismo tipo que los datos, como pide el
+    # enunciado.
+    # @note-body-end
+    inputs = batchInputs(dataset)
+    T = eltype(inputs)
+    # @note-end
+    # @note-start id=g2hn1s color=yellow
+    # Columna de unos + operador \
+    # `hcat(ones(T, N), inputs)` añade una primera columna de unos: su
+    # coeficiente hará de término libre $b$.
     #
-    # Codigo a desarrollar
-    #
+    # `A \ y` resuelve $A\,c \approx y$ por mínimos cuadrados (cuando $A$ no es
+    # cuadrada). El resultado `coefficients` tiene $d+1$ elementos: el primero es
+    # $b$ y los demás son $w$.
+    # @note-body-end
+    coefficients = hcat(ones(T, size(inputs, 1)), inputs) \ batchTargets(dataset)
+    # @note-end
+    # @note-start id=u6bx9r color=yellow
+    # Construir el LinearModel con el tipo de los datos
+    # `coefficients[1]` es el término libre y `coefficients[2:end]` los
+    # coeficientes. Se convierten a `T` por si `\` hubiera promocionado el tipo
+    # (por ejemplo, entradas `Float32` y *targets* `Float64`).
+    # @note-body-end
+    return (convert(T, coefficients[1]), convert.(T, coefficients[2:end]))
+    # @note-end
 end;
 
+# @note-start id=e3mk5v color=blue
+# trainRegressionModel: regresión simbólica con DoME
+# Busca una expresión matemática (con operaciones, variables y constantes) que
+# aproxime los *targets*, usando el algoritmo DoME de la librería SymDoME.
+#
+# **API pública** (se llega a ella con `"modelType" => :DoME`).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `::Val{:DoME}` | `Val{:DoME}` | Selector del método. |
+# | `configuration` | `Dict` | Debe tener `"maximumNodes"` (`Int`): número máximo de nodos de la expresión. |
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `SymDoME.Tree` | La expresión encontrada. Se evalúa con `predict(::SymDoME.Tree, inputs)`. |
+#
+# **Errores:** `KeyError` si falta `"maximumNodes"`.
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function trainRegressionModel(::Val{:DoME}, configuration::Dict, dataset::Batch)
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=s7dq2l color=yellow
+    # Llamada a dome y selección del modelo
+    # `dome(inputs, targets; maximumNodes=…)` devuelve una **tupla** con varios
+    # valores; el primero (`[1]`) es el modelo, de tipo `SymDoME.Tree`.
+    # @note-body-end
+    return dome(batchInputs(dataset), batchTargets(dataset); maximumNodes = configuration["maximumNodes"])[1]
+    # @note-end
 end;
 
+# @note-start id=h9wc4n color=blue
+# trainRegressionModel: SVR (máquina de vectores de soporte para regresión)
+# Entrena un `EpsilonSVR` de LIBSVM a través de MLJ. Busca una función que se
+# equivoque como mucho $\varepsilon$ en cada instancia, penalizando con `C` las
+# que se salen del margen.
+#
+# **API pública** (se llega a ella con `"modelType" => :SVR`).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `::Val{:SVR}` | `Val{:SVR}` | Selector del método. |
+# | `configuration` | `Dict` | Hiperparámetros opcionales (tabla siguiente). |
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+#
+# **Hiperparámetros** (clave en `configuration`, tipo forzado, valor por defecto)
+#
+# | Clave | Argumento | Tipo | Por defecto |
+# |---|---|---|---|
+# | `"kernel"` | `kernel` | `String` | `"rbf"` |
+# | `"epsilon"` | `epsilon` | `Float64` | `0.1` |
+# | `"C"` | `cost` | `Float64` | `1` |
+# | `"gamma"` | `gamma` | `Float64` | $1 / \text{num. atributos}$ |
+# | `"degree"` | `degree` | `Int32` | `3` |
+# | `"coef0"` | `coef0` | `Float64` | `0` |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Machine` | La *machine* de MLJ entrenada. Se predice con el `predict` dado para `EpsilonSVR`. |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function trainRegressionModel(::Val{:SVR}, configuration::Dict, dataset::Batch)
+# @note-end
+    # @note-start id=y1pf8g color=yellow
+    # Kernel elegido (por defecto "rbf")
+    # `get(dict, clave, porDefecto)` devuelve el valor de la clave o, si no
+    # existe, el valor por defecto. Así funcionan todos los hiperparámetros.
+    # @note-body-end
+    kernel = get(configuration, "kernel", "rbf")
+    # @note-end
+    # @note-start id=o5zt6a color=yellow
+    # Crear el EpsilonSVR con cada hiperparámetro de su tipo
+    # LIBSVM exige tipos concretos, por eso cada valor se fuerza con `Float64(…)`
+    # o `Int32(…)`; si no, podría dar error.
     #
-    # Codigo a desarrollar
+    # El *string* del kernel se traduce al kernel de LIBSVM con la misma cadena
+    # de ternarios que `trainSVM` (Ejercicio 2):
     #
+    # | `"kernel"` | Kernel de LIBSVM |
+    # |---|---|
+    # | `"linear"` | `LIBSVM.Kernel.Linear` |
+    # | `"rbf"` | `LIBSVM.Kernel.RadialBasis` |
+    # | `"poly"` | `LIBSVM.Kernel.Polynomial` |
+    # | `"sigmoid"` | `LIBSVM.Kernel.Sigmoid` |
+    #
+    # El `gamma` por defecto es $1 / d$, con $d$ = número de columnas de las
+    # entradas.
+    # @note-body-end
+    model = EpsilonSVR(
+        kernel =
+            kernel=="linear"  ? LIBSVM.Kernel.Linear :
+            kernel=="rbf"     ? LIBSVM.Kernel.RadialBasis :
+            kernel=="poly"    ? LIBSVM.Kernel.Polynomial :
+            kernel=="sigmoid" ? LIBSVM.Kernel.Sigmoid : nothing,
+        epsilon = Float64(get(configuration, "epsilon", 0.1)),
+        cost    = Float64(get(configuration, "C", 1.)),
+        gamma   = Float64(get(configuration, "gamma", 1. / size(batchInputs(dataset), 2))),
+        degree  = Int32(  get(configuration, "degree", 3)),
+        coef0   = Float64(get(configuration, "coef0", 0.)))
+    # @note-end
+    # @note-start id=i2rv3x color=yellow
+    # machine + fit! (como en el enunciado)
+    # Igual que con el SVM del Ejercicio 2, pero en regresión los *targets* se
+    # pasan tal cual: **no** se convierten con `categorical`.
+    # `MLJ.table` convierte la matriz de entradas en una tabla, que es lo que
+    # espera MLJ.
+    # @note-body-end
+    mach = MLJ.machine(model, MLJ.table(batchInputs(dataset)), batchTargets(dataset))
+    MLJ.fit!(mach, verbosity=0)
+    return mach
+    # @note-end
 end;
 
 
 
+# @note-start id=d4kn7y color=blue
+# calculateErrorSplit: error de una partición usando las salidas de un modelo
+# Versión del Ejercicio 4 en la que la predicción de cada lado no es la media de
+# los *targets*, sino las salidas de un modelo de regresión (`modelOutputs`):
+#
+# $$
+# E(j, t) = N_L \cdot \text{MSE}(\hat{y}_L, y_L) + N_R \cdot \text{MSE}(\hat{y}_R, y_R)
+# $$
+#
+# donde $L$ son las instancias con $x_j \le t$ y $R$ las demás.
+#
+# **API pública** (la llama la autoevaluación). La usa `bestSplit(dataset, modelOutputs)`.
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+# | `numFeature` | `Int` | Índice del atributo $j$. |
+# | `threshold` | `Real` | Umbral $t$. |
+# | `modelOutputs` | `AbstractVector{<:Real}` | Salida del modelo para cada instancia de `dataset` (mismo orden). |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Real` | Error ponderado, del tipo de las entradas del dataset. `Inf` si un lado queda vacío. |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function calculateErrorSplit(dataset::Batch, numFeature::Int, threshold::Real, modelOutputs::AbstractVector{<:Real})
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=v8sb1u color=yellow
+    # Modelo constante: usar la versión del Ejercicio 4
+    # Si todas las salidas del modelo son iguales (`unique` da un solo valor), el
+    # modelo es una constante. Como pide el enunciado, se devuelve directamente
+    # la versión sin `modelOutputs`.
+    # @note-body-end
+    if length(unique(modelOutputs)) == 1
+        return calculateErrorSplit(dataset, numFeature, threshold)
+    end
+    # @note-end
+    # @note-start id=r3gm9o color=yellow
+    # Partir el dataset y contar instancias por lado
+    # `mask` marca con `true` las instancias con $x_j \le t$. Se guarda para poder
+    # repartir `modelOutputs` igual que los datos.
+    # @note-body-end
+    leftBatch, rightBatch, mask = splitDataset(dataset, numFeature, threshold)
+    nLeft = batchLength(leftBatch)
+    nRight = batchLength(rightBatch)
+    # @note-end
+    # @note-start id=q6lw2e color=yellow
+    # Partición inválida
+    # Si un lado queda vacío no es una división real. Se devuelve `Inf` para que
+    # nunca se elija, igual que en la versión del Ejercicio 4.
+    # @note-body-end
+    if nLeft == 0 || nRight == 0
+        return convert(eltype(batchInputs(dataset)), Inf)
+    end
+    # @note-end
+    # @note-start id=l7ct5i color=yellow
+    # MSE de cada lado con las salidas del modelo
+    # `modelOutputs[mask]` son las salidas de las instancias del lado izquierdo y
+    # `modelOutputs[.!mask]` las del derecho, en el mismo orden que
+    # `batchTargets` de cada sub-lote.
+    # @note-body-end
+    errLeft = mse(modelOutputs[mask], batchTargets(leftBatch))
+    errRight = mse(modelOutputs[.!mask], batchTargets(rightBatch))
+    # @note-end
+    # @note-start id=a9hy4s color=yellow
+    # Suma ponderada por número de instancias
+    # Se convierte al tipo de las entradas del dataset, como pide el enunciado.
+    # @note-body-end
+    return convert(eltype(batchInputs(dataset)), nLeft * errLeft + nRight * errRight)
+    # @note-end
 end;
 
 
 
+# @note-start id=k2fv8n color=blue
+# bestSplit: mejor partición usando las salidas de un modelo
+# Igual que `bestSplit(dataset)` del Ejercicio 4, pero el error de referencia y
+# el de cada partición se calculan con `modelOutputs` en vez de con la media de
+# los *targets*.
+#
+# **API pública** (la llama la autoevaluación). La usa `buildModelTree` para
+# decidir cómo dividir cada nodo.
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+# | `modelOutputs` | `AbstractVector{<:Real}` | Salida del modelo del nodo para cada instancia de `dataset`. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Tuple{Int, Real}` | `(atributo, umbral)`; el umbral, del tipo de las entradas. `(-1, NaN)` si hay $\le 1$ instancia o ninguna partición mejora el error actual. |
+#
+# **Restricciones:** máximo 2 bucles anidados (atributos y umbrales).
+# @note-body-end
 function bestSplit(dataset::Batch, modelOutputs::AbstractVector{<:Real})
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=p5zq3d color=yellow
+    # Caso trivial: 0 o 1 instancias
+    # Con una sola instancia no hay nada que partir: se devuelve `(-1, NaN)`, con
+    # `NaN` convertido al tipo `T` de las entradas.
+    # @note-body-end
+    n = batchLength(dataset)
+    T = eltype(batchInputs(dataset))
+    if n <= 1
+        return (-1, convert(T, NaN))
+    end
+    # @note-end
+
+    # @note-start id=z7mx1w color=yellow
+    # Error de referencia: el del nodo sin partir
+    # $n \cdot \text{MSE}(\text{modelOutputs}, y)$. Una partición solo se acepta si
+    # mejora **estrictamente** este valor; si ninguna lo hace, se devuelve
+    # `(-1, NaN)`.
+    # @note-body-end
+    bestError = n * mse(modelOutputs, batchTargets(dataset))
+    bestFeature = -1
+    bestThreshold = convert(T, NaN)
+    # @note-end
+
+    inputs = batchInputs(dataset)
+    numFeatures = size(inputs, 2)
+
+    # @note-start id=m3bt6r color=yellow
+    # Búsqueda exhaustiva (los 2 bucles permitidos)
+    # Para cada atributo $j$ se prueban todos sus umbrales candidatos
+    # (`candidateThresholds`) y se calcula el error con la versión de
+    # `calculateErrorSplit` que recibe `modelOutputs`. Se guarda el par
+    # $(j, t)$ con menor error.
+    # @note-body-end
+    for j in 1:numFeatures
+        thresholds = candidateThresholds(inputs[:, j])
+        for t in thresholds
+            err = calculateErrorSplit(dataset, j, t, modelOutputs)
+            if err < bestError
+                bestError = err
+                bestFeature = j
+                bestThreshold = t
+            end
+        end
+    end
+    # @note-end
+
+    return (bestFeature, bestThreshold)
 end;
 
+# @note-start id=f8nk2c color=blue
+# buildModelTree: construcción recursiva de un árbol de modelos
+# Como `buildRegressionTree` (Ejercicio 4), pero el modelo de cada nodo y de
+# cada hoja se entrena con `trainRegressionModel(configuration, …)` en lugar de
+# ser la media de los *targets*. Las salidas de ese modelo se usan para buscar
+# la mejor partición.
+#
+# Con `Dict("modelType" => :constant)` se obtiene exactamente un árbol de
+# regresión del Ejercicio 4.
+#
+# **API pública** (la usa `trainRegressionModel(::Val{:ModelTree}, …)`).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `configuration` | `Dict` | Configuración de los **modelos internos** (no del árbol). |
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+# | `max_depth` | `Int` (*keyword*, por defecto `-1`) | Profundidad máxima; `-1` = sin límite. |
+# | `min_samples_leaf` | `Int` (*keyword*, por defecto `1`) | Si el nodo tiene $\le$ este número de instancias, se crea una hoja. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `ModelTree` | `ModelTreeLeaf` o `ModelTreeNode` (raíz del árbol). |
+#
+# **Restricciones:** 0 bucles permitidos (recursivo).
+# @note-body-end
 function buildModelTree(configuration::Dict, dataset::Batch;
     max_depth        :: Int = -1,
     min_samples_leaf :: Int =  1
 )
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=t1wj9h color=yellow
+    # Entrenar el modelo de este nodo
+    # Se entrena siempre, sea hoja o nodo: en una hoja es el modelo que predice, y
+    # en un nodo sirve para buscar la partición, para el suavizado (`predict` con
+    # `k`) y para la poda (`prune!`).
+    # @note-body-end
+    n = batchLength(dataset)
+    model = trainRegressionModel(configuration, dataset)
+    # @note-end
+
+    # @note-start id=b4qd5g color=yellow
+    # Caso base: pocas instancias o profundidad agotada
+    # `max_depth == 0` solo ocurre si se pidió un límite; con `-1` va bajando
+    # ($-2, -3, \dots$) y nunca llega a 0.
+    # @note-body-end
+    if n <= min_samples_leaf || max_depth == 0
+        return ModelTreeLeaf(model, n)
+    end
+    # @note-end
+
+    # @note-start id=x6rp7m color=yellow
+    # Mejor partición según las salidas del modelo
+    # Si `bestSplit` devuelve `-1`, ninguna partición mejora el error del nodo y
+    # también se crea una hoja.
+    # @note-body-end
+    feature, threshold = bestSplit(dataset, predict(model, batchInputs(dataset)))
+    if feature == -1
+        return ModelTreeLeaf(model, n)
+    end
+    # @note-end
+
+    # @note-start id=n9ls3v color=yellow
+    # Partir y construir los hijos recursivamente
+    # Cada hijo recibe su subconjunto, `max_depth - 1` y el mismo
+    # `min_samples_leaf`.
+    # @note-body-end
+    leftDataset, rightDataset, _ = splitDataset(dataset, feature, threshold)
+    leftChild = buildModelTree(configuration, leftDataset; max_depth = max_depth - 1, min_samples_leaf = min_samples_leaf)
+    rightChild = buildModelTree(configuration, rightDataset; max_depth = max_depth - 1, min_samples_leaf = min_samples_leaf)
+    # @note-end
+
+    return ModelTreeNode(feature, threshold, model, leftChild, rightChild)
 end;
 
+# @note-start id=j2cy8k color=blue
+# trainRegressionModel: árbol de modelos
+# Envoltorio que permite entrenar un árbol de modelos con la misma interfaz que
+# el resto de modelos de regresión.
+#
+# **Importante:** `configuration` es la configuración **del árbol**. La
+# configuración de los modelos internos va dentro, en
+# `"localModelConfiguration"`, y es la que se pasa a `buildModelTree`.
+#
+# **API pública** (se llega a ella con `"modelType" => :ModelTree`).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `::Val{:ModelTree}` | `Val{:ModelTree}` | Selector del método. |
+# | `configuration` | `Dict` | Claves: `"localModelConfiguration"` (`Dict`, obligatoria), `"max_depth"` (por defecto `-1`) y `"min_samples_leaf"` (por defecto `1`). |
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `ModelTree` | Árbol de modelos entrenado. |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function trainRegressionModel(::Val{:ModelTree}, configuration::Dict, dataset::Batch)
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=w7fh4t color=yellow
+    # Llamar a buildModelTree con los hiperparámetros del árbol
+    # `get` toma `"max_depth"` y `"min_samples_leaf"` del `Dict` o, si no están,
+    # los valores por defecto ($-1$ y $1$).
+    # @note-body-end
+    return buildModelTree(configuration["localModelConfiguration"], dataset;
+        max_depth        = get(configuration, "max_depth", -1),
+        min_samples_leaf = get(configuration, "min_samples_leaf", 1))
+    # @note-end
 end;
 
 
 
+# @note-start id=c5mz1b color=blue
+# numInstances: instancias de entrenamiento que llegaron a una hoja
+# Devuelve el número de instancias de entrenamiento con las que se creó la hoja.
+#
+# **API pública** (la llama la autoevaluación). La usan `predict` con
+# suavizado (peso $n$ de cada hijo) y `prune!`.
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `tree` | `ModelTreeLeaf` | Hoja del árbol. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Int` | Campo `n` de la hoja ($\ge 1$). |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function numInstances(tree::ModelTreeLeaf)
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=g8tq6x color=yellow
+    # Leer el campo n
+    # Las hojas guardan cuántas instancias llegaron a ellas al construir el árbol.
+    # @note-body-end
+    return tree.n
+    # @note-end
 end;
 
+# @note-start id=u3vk2p color=blue
+# numInstances: instancias de entrenamiento que llegaron a un nodo
+# Los nodos no guardan el número de instancias, así que se calcula
+# recursivamente como la suma de las de sus dos hijos.
+#
+# **API pública** (la llama la autoevaluación).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `tree` | `ModelTreeNode` | Nodo interno del árbol. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Int` | Suma de las instancias de todas las hojas por debajo del nodo. |
+#
+# **Restricciones:** 0 bucles permitidos (recursivo).
+# @note-body-end
 function numInstances(tree::ModelTreeNode)
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=e9dn5w color=yellow
+    # Suma recursiva de los dos hijos
+    # Cada llamada baja por el árbol hasta las hojas, que devuelven su `n`.
+    # @note-body-end
+    return numInstances(tree.leftChild) + numInstances(tree.rightChild)
+    # @note-end
 end;
 
+# @note-start id=s1gr7c color=blue
+# predict: predicción con suavizado en una hoja
+# En las hojas no se suaviza: es igual que la predicción sin `k` del
+# Ejercicio 4.
+#
+# **API pública** (la llama `predict(::ModelTreeNode, inputs, k)` al llegar a
+# una hoja).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `tree` | `ModelTreeLeaf` | Hoja del árbol. |
+# | `inputs` | `AbstractMatrix{<:Real}` | Instancias en filas. |
+# | `k` | `Int` | Constante de suavizado (aquí no se usa). |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `AbstractVector{<:Real}` | Una predicción por fila de `inputs`. |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function predict(tree::ModelTreeLeaf, inputs::AbstractMatrix{<:Real}, k::Int)
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=h4yb3j color=yellow
+    # Delegar en el predict del Ejercicio 4
+    # Sin el tercer argumento se llama a `predict(::ModelTreeLeaf, inputs)`, que
+    # a su vez llama al `predict` del modelo guardado en la hoja.
+    # @note-body-end
+    return predict(tree, inputs)
+    # @note-end
 end;
 
+# @note-start id=y8xm6f color=blue
+# predict: predicción con suavizado en un nodo
+# Predice con los hijos y suaviza cada predicción con la del modelo de este
+# nodo:
+#
+# $$
+# p' = \frac{n \cdot p + k \cdot q}{n + k}
+# $$
+#
+# - $p$: predicción que viene del hijo (izquierdo si $x_j \le t$, derecho si no).
+# - $n$: instancias de entrenamiento de ese hijo (`numInstances`).
+# - $q$: predicción del modelo de este nodo.
+# - $k$: constante de suavizado. Cuanto mayor, más peso tiene $q$; un hijo con
+#   pocas instancias ($n$ pequeño) se fía más del padre.
+#
+# **API pública** (la llama la autoevaluación).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `tree` | `ModelTreeNode` | Nodo interno del árbol. |
+# | `inputs` | `AbstractMatrix{<:Real}` | Instancias en filas. |
+# | `k` | `Int` | Constante de suavizado. Si $k \le 0$ no se suaviza. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `AbstractVector{<:Real}` | Una predicción por fila de `inputs`, en el orden original. |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function predict(tree::ModelTreeNode, inputs::AbstractMatrix{<:Real}, k::Int)
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=o2kc9q color=yellow
+    # Sin suavizado: predicción del Ejercicio 4
+    # Con $k \le 0$ el modelo del nodo no influye, así que se ahorra el cálculo
+    # llamando a `predict(tree, inputs)` sin `k`.
+    # @note-body-end
+    if k <= 0
+        return predict(tree, inputs)
+    end
+    # @note-end
+    # @note-start id=i6tw1z color=yellow
+    # Partir las entradas y predecir con el modelo del nodo
+    # `mask` indica qué filas van al hijo izquierdo ($x_j \le t$). `q` es la
+    # predicción del modelo de este nodo para **todas** las filas.
+    # @note-body-end
+    leftInputs, rightInputs, mask = splitDataset(inputs, tree.feature, tree.threshold)
+    q = predict(tree.model, inputs)
+    # @note-end
+    # @note-start id=d5hp8l color=yellow
+    # Predicciones de los hijos (con suavizado recursivo)
+    # Si un lado no recibe filas, no se llama a su hijo (algunos modelos, como
+    # el SVR, fallarían con una matriz vacía) y se usa un vector vacío.
+    # @note-body-end
+    leftPreds = any(mask) ? predict(tree.leftChild, leftInputs, k) : q[mask]
+    rightPreds = all(mask) ? q[.!mask] : predict(tree.rightChild, rightInputs, k)
+    # @note-end
+    # @note-start id=v3rn4s color=yellow
+    # Ensamblar p en el orden original
+    # Se reserva un vector del tipo común de las predicciones y se rellena con
+    # la máscara: posiciones `true` con el hijo izquierdo y `false` con el
+    # derecho.
+    # @note-body-end
+    p = Vector{promote_type(eltype(q), eltype(leftPreds), eltype(rightPreds))}(undef, size(inputs, 1))
+    p[mask] = leftPreds
+    p[.!mask] = rightPreds
+    # @note-end
+    # @note-start id=r9fy2m color=yellow
+    # n de cada fila y fórmula de suavizado
+    # `ifelse.(mask, nL, nR)` da a cada fila el número de instancias del hijo al
+    # que va. Después se aplica $p' = (n p + k q) / (n + k)$ a todo el vector con
+    # *broadcasting*.
+    # @note-body-end
+    n = ifelse.(mask, numInstances(tree.leftChild), numInstances(tree.rightChild))
+    return (n .* p .+ k .* q) ./ (n .+ k)
+    # @note-end
 end;
 
 
+# @note-start id=q1bz7k color=blue
+# prune!: poda de una hoja
+# Una hoja no se puede podar: se devuelve tal cual.
+#
+# **API pública** (la llama la autoevaluación y `prune!(::ModelTreeNode, …)` al
+# llegar a una hoja).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `tree` | `ModelTreeLeaf` | Hoja del árbol. |
+# | `validationDataset` | `Batch` | Conjunto de validación (no se usa). |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `ModelTree` | La misma hoja. |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function prune!(tree::ModelTreeLeaf, validationDataset::Batch)
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=l4cv6w color=yellow
+    # Devolver la hoja sin cambios
+    # @note-body-end
+    return tree
+    # @note-end
 end;
 
+# @note-start id=a6nt3h color=blue
+# prune!: poda de un nodo con un conjunto de validación
+# Poda de abajo arriba: primero los hijos y después este nodo. El nodo se
+# sustituye por una hoja con su propio modelo si ese modelo, solo, se equivoca
+# igual o menos en validación que el subárbol completo.
+#
+# **API pública** (la llama la autoevaluación).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `tree` | `ModelTreeNode` | Nodo a podar. Se **modifica** (sus hijos se sustituyen por los podados). |
+# | `validationDataset` | `Batch` | Instancias de validación que llegan a este nodo. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `ModelTree` | El mismo nodo (con los hijos podados) o una `ModelTreeLeaf` que lo sustituye. |
+#
+# **Restricciones:** 0 bucles permitidos (recursivo).
+# @note-body-end
 function prune!(tree::ModelTreeNode, validationDataset::Batch)
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=k8gq5x color=yellow
+    # Sin datos de validación no se puede decidir
+    # Si no llega ninguna instancia de validación a este nodo, se deja como está.
+    # @note-body-end
+    if batchLength(validationDataset) == 0
+        return tree
+    end
+    # @note-end
+    # @note-start id=p2jw9r color=yellow
+    # Podar primero los hijos (recursivo)
+    # Se reparte la validación con el atributo y el umbral del nodo, y el
+    # resultado de cada `prune!` **reemplaza** al hijo. Esto modifica el árbol
+    # (`ModelTreeNode` es `mutable struct`), de ahí el `!` del nombre.
+    # @note-body-end
+    leftDataset, rightDataset, _ = splitDataset(validationDataset, tree.feature, tree.threshold)
+    tree.leftChild = prune!(tree.leftChild, leftDataset)
+    tree.rightChild = prune!(tree.rightChild, rightDataset)
+    # @note-end
+    # @note-start id=z5dk1c color=yellow
+    # Comparar subárbol frente a modelo del nodo
+    # - `errorTree`: MSE del nodo completo (baja por los hijos ya podados, sin
+    #   suavizado).
+    # - `errorModel`: MSE usando solo el modelo guardado en este nodo.
+    # @note-body-end
+    inputs = batchInputs(validationDataset)
+    targets = batchTargets(validationDataset)
+    errorTree = mse(predict(tree, inputs), targets)
+    errorModel = mse(predict(tree.model, inputs), targets)
+    # @note-end
+    # @note-start id=w9xe3b color=yellow
+    # Sustituir por una hoja si el modelo del nodo basta
+    # Si `errorModel <= errorTree`, el subárbol no aporta y se devuelve una hoja
+    # con el modelo del nodo y sus instancias (`numInstances`). Si no, se
+    # devuelve el propio nodo.
+    # @note-body-end
+    return errorModel <= errorTree ? ModelTreeLeaf(tree.model, numInstances(tree)) : tree
+    # @note-end
 end;
 
 
@@ -1960,23 +2758,187 @@ struct KNN
 end
 
 
+# @note-start id=r2kd7x color=blue
+# trainRegressionModel: kNN híbrido (modelo global + modelos locales)
+# Crea la estructura `KNN`. El kNN en sí no se entrena: guarda el dataset para
+# buscar vecinos al predecir. Lo único que se entrena aquí es el modelo
+# **global** (si se pide); los modelos **locales** se entrenan en cada
+# predicción con los vecinos de la instancia.
+#
+# **API pública** (se llega a ella con `"modelType" => :KNN`, también como modelo
+# interno de un árbol de modelos o de otro kNN).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `::Val{:KNN}` | `Val{:KNN}` | Selector del método. |
+# | `configuration` | `Dict` | Claves opcionales (tabla siguiente). |
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+#
+# **Claves de `configuration`**
+#
+# | Clave | Tipo | Por defecto | Significado |
+# |---|---|---|---|
+# | `"k"` | `Int` | `5` | Número de vecinos. |
+# | `"globalModelConfiguration"` | `Dict` | (ausente) | Configuración del modelo global. Si no está, no hay modelo global (`nothing`). |
+# | `"localModelConfiguration"` | `Dict` | `Dict("modelType" => :constant)` | Configuración del modelo local (por defecto, la media de los vecinos: kNN clásico). |
+# | `"alpha"` | `Real` | `NaN` | Peso $\alpha$ para combinar local y global. `NaN` = el local corrige los residuos del global. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `KNN` | Estructura con `dataset`, `k`, `globalModel`, `localModelConfiguration` y `alpha`. |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function trainRegressionModel(::Val{:KNN}, configuration::Dict, dataset::Batch)
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=m9pw3f color=yellow
+    # Entrenar el modelo global (si lo hay)
+    # `haskey` comprueba si la configuración incluye `"globalModelConfiguration"`.
+    # Si está, se entrena con **todo** el dataset mediante la interfaz genérica
+    # `trainRegressionModel`; si no, el campo queda a `nothing`.
+    # @note-body-end
+    globalModel = haskey(configuration, "globalModelConfiguration") ?
+        trainRegressionModel(configuration["globalModelConfiguration"], dataset) : nothing
+    # @note-end
+    # @note-start id=t6zn1q color=yellow
+    # Construir la estructura KNN con sus valores por defecto
+    # Se llama a `KNN` como función, con los campos en el orden en que están
+    # definidos. `get` aplica los valores por defecto del enunciado.
+    # `Float64(…)` asegura que `alpha` sea `AbstractFloat` aunque llegue como
+    # entero.
+    # @note-body-end
+    return KNN(
+        dataset,
+        get(configuration, "k", 5),
+        globalModel,
+        get(configuration, "localModelConfiguration", Dict("modelType" => :constant)),
+        Float64(get(configuration, "alpha", NaN)))
+    # @note-end
 end;
 
 
+# @note-start id=b3hv8c color=blue
+# predict: predicción de un kNN híbrido para una instancia
+# Busca los $k$ vecinos más cercanos de `instance`, entrena con ellos el modelo
+# local y combina su predicción con la del modelo global (si lo hay):
+#
+# | Caso | Predicción |
+# |---|---|
+# | Sin modelo global | $\hat{y} = \hat{y}_{local}$ |
+# | Global y `alpha = NaN` (corrección local) | $\hat{y} = \hat{y}_{global} + \hat{y}_{local}$, con el local entrenado sobre los residuos $y - \hat{y}_{global}$ |
+# | Global y `alpha` con valor | $\hat{y} = \alpha \cdot \hat{y}_{local} + (1-\alpha) \cdot \hat{y}_{global}$ |
+#
+# **API pública** (la usa `predict(::KNN, inputs)` para cada fila).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `model` | `KNN` | kNN entrenado con `trainRegressionModel`. |
+# | `instance` | `AbstractArray{<:Real,1}` | Una instancia (vector de atributos). |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Real` | Un único valor (no un vector ni una matriz). |
+#
+# **Restricciones:** 0 bucles permitidos.
+# @note-body-end
 function predict(model::KNN, instance::AbstractArray{<:Real,1})
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=x5jl2w color=yellow
+    # Vecinos más cercanos (Ejercicio 3)
+    # `nearestElements` devuelve un `Batch` con las $k$ instancias del dataset
+    # más cercanas a `instance` (distancia euclídea).
+    # @note-body-end
+    neighbors = nearestElements(model.dataset, instance, model.k)
+    # @note-end
+    # @note-start id=f1qk9m color=yellow
+    # La instancia como matriz de una fila
+    # Todos los `predict` de modelos reciben una matriz (instancias en filas).
+    # `reshape(instance, 1, :)` convierte el vector de $d$ atributos en una
+    # matriz $1 \times d$.
+    # @note-body-end
+    instanceMatrix = reshape(instance, 1, :)
+    # @note-end
+    # @note-start id=n7cs4d color=yellow
+    # Corrección local: entrenar el local con los residuos
+    # Si hay modelo global (`!isnothing`) y `alpha` no tiene valor (`isnan`), el
+    # modelo local debe aprender **lo que el global falla**. Por eso sus salidas
+    # deseadas se cambian por los residuos $y - \hat{y}_{global}$ de los vecinos.
+    # @note-body-end
+    if !isnothing(model.globalModel) && isnan(model.alpha)
+        neighbors = (batchInputs(neighbors), batchTargets(neighbors) .- predict(model.globalModel, batchInputs(neighbors)))
+    end
+    # @note-end
+    # @note-start id=h2wb6y color=yellow
+    # Entrenar el modelo local y predecir la instancia
+    # Siempre hay modelo local (por defecto `:constant`, la media de los
+    # vecinos). `predict` devuelve un vector de 1 elemento, así que se toma
+    # `[1]`.
+    # @note-body-end
+    localModel = trainRegressionModel(model.localModelConfiguration, neighbors)
+    localPrediction = predict(localModel, instanceMatrix)[1]
+    # @note-end
+    # @note-start id=g4ra8u color=yellow
+    # Sin modelo global: solo la predicción local
+    # @note-body-end
+    if isnothing(model.globalModel)
+        return localPrediction
+    end
+    # @note-end
+    # @note-start id=y9te3n color=yellow
+    # Combinar con la predicción global
+    # - `alpha` es `NaN`: el local predijo un residuo, así que se **suma** a la
+    #   predicción global.
+    # - `alpha` con valor: media ponderada
+    #   $\alpha \cdot \hat{y}_{local} + (1-\alpha) \cdot \hat{y}_{global}$.
+    # @note-body-end
+    globalPrediction = predict(model.globalModel, instanceMatrix)[1]
+    return isnan(model.alpha) ?
+        globalPrediction + localPrediction :
+        model.alpha * localPrediction + (1 - model.alpha) * globalPrediction
+    # @note-end
 end;
 
 
+# @note-start id=e6mf1j color=blue
+# predict: predicción de un kNN híbrido para una matriz
+# En kNN cada instancia tiene vecinos distintos, así que no se puede predecir
+# de forma matricial: se predice fila a fila con la versión para una instancia.
+#
+# **API pública** (la llama la autoevaluación y cualquier modelo que contenga un
+# kNN, por ejemplo un árbol de modelos con hojas kNN).
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `model` | `KNN` | kNN entrenado con `trainRegressionModel`. |
+# | `inputs` | `AbstractArray{<:Real,2}` | Instancias en filas, atributos en columnas. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `AbstractVector{<:Real}` | Una predicción por fila de `inputs`. |
+#
+# **Restricciones:** 0 bucles permitidos (se usa una *comprehension*, como
+# sugiere el enunciado).
+# @note-body-end
 function predict(model::KNN, inputs::AbstractArray{<:Real,2})
-    #
-    # Codigo a desarrollar
-    #
+# @note-end
+    # @note-start id=s3xp7v color=yellow
+    # Comprehension sobre las filas
+    # `eachrow(inputs)` recorre la matriz fila a fila (cada fila es un vector) y
+    # para cada una se llama a `predict(model, instance)`. El resultado es un
+    # vector con un valor por fila.
+    # @note-body-end
+    return [predict(model, instance) for instance in eachrow(inputs)]
+    # @note-end
 end;
-=#
