@@ -1589,7 +1589,7 @@ struct ModelTreeLeaf <: ModelTree
 end
 
 
-# @note-start id=mse01 color=blue
+# @note-start id=1jclo7 color=blue
 # mse: error cuadrático medio (Mean Squared Error)
 # Calcula el promedio de las diferencias al cuadrado entre las predicciones `outputs`
 # y los valores reales `targets`:
@@ -1598,37 +1598,56 @@ end
 # \text{MSE} = \frac{1}{N} \sum_{i=1}^N (\hat{y}_i - y_i)^2
 # $$
 #
+# **API pública** (la llama la autoevaluación). También la usan `calculateErrorSplit`
+# y `bestSplit` (Ejercicios 4 y 5) y `prune!`.
+#
 # **Entradas**
-# - `outputs`: `Union{Real, AbstractVector{<:Real}}`, predicciones (escalar o vector).
-# - `targets`: `AbstractVector{<:Real}`, valores reales deseadas.
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `outputs` | `Union{Real, AbstractVector{<:Real}}` | Predicciones: un escalar (la misma para todas las instancias) o un vector. |
+# | `targets` | `AbstractVector{<:Real}` | Valores reales deseados. |
 #
 # **Salida**
-# - `Real`: valor numérico con el MSE, del mismo tipo que los datos.
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Real` | Valor del MSE, del mismo tipo que los datos. |
 #
 # **Restricciones:** 0 bucles permitidos.
 # @note-body-end
 function mse(outputs::Union{Real,AbstractVector{<:Real}}, targets::AbstractVector{<:Real})
+# @note-end
     return mean((outputs .- targets).^2)
 end;
 
-# @note-start id=ct01 color=blue
-# candidateThresholds: generación de umbrales candidatos de división
+# @note-start id=ub8ymn color=blue
+# candidateThresholds: umbrales candidatos de división
 # Calcula los puntos medios entre valores únicos consecutivos ordenados de un atributo `x`:
 #
 # $$
 # t_i = \frac{u_i + u_{i+1}}{2}
 # $$
 #
+# **API pública** (la llama la autoevaluación). También la usa `bestSplit`
+# (Ejercicios 4 y 5).
+#
 # **Entradas**
-# - `x`: `AbstractVector{<:Real}`, vector de valores de un atributo.
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `x` | `AbstractVector{<:Real}` | Valores de un atributo. |
 #
 # **Salida**
-# - `Vector{<:Real}`: vector ordenado con los umbrales candidatos, del mismo tipo que `x`.
-#   Si hay 1 o 0 valores únicos, devuelve un vector vacío `eltype(x)[]`.
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Vector{<:Real}` | Umbrales candidatos ordenados, del mismo tipo que `x`. Si hay 0 o 1 valores únicos, un vector vacío `eltype(x)[]`. |
 #
 # **Restricciones:** 0 bucles permitidos.
 # @note-body-end
 function candidateThresholds(x::AbstractVector{<:Real})
+# @note-end
     u = sort(unique(x))
     if length(u) <= 1
         return eltype(x)[]
@@ -1636,64 +1655,93 @@ function candidateThresholds(x::AbstractVector{<:Real})
     return (u[1:end-1] .+ u[2:end]) ./ 2
 end;
 
-# @note-start id=sdm01 color=blue
-# splitDataset: división de una matriz de datos por atributo y umbral
+# @note-start id=h030wg color=blue
+# splitDataset: división de una matriz por atributo y umbral
 # Divide `inputs` en dos subconjuntos según $x_j \le t$ y $x_j > t$.
 #
+# **API pública** (firma pedida en el enunciado). La usan `splitDataset(::Batch, …)`
+# y los dos métodos de `predict(::ModelTreeNode, …)` (Ejercicios 4 y 6).
+#
 # **Entradas**
-# - `inputs`: `AbstractMatrix{<:Real}`, matriz de características.
-# - `numFeature`: `Int`, índice del atributo $j$.
-# - `threshold`: `Real`, valor del umbral $t$.
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `inputs` | `AbstractMatrix{<:Real}` | Matriz de características: instancias en filas. |
+# | `numFeature` | `Int` | Índice del atributo $j$. |
+# | `threshold` | `Real` | Valor del umbral $t$. |
 #
 # **Salida**
-# - `Tuple`: `(leftInputs, rightInputs, mask)` donde `mask` es el vector booleano con los
-#   índices del primer subconjunto.
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Tuple` | `(leftInputs, rightInputs, mask)`: filas con $x_j \le t$, filas con $x_j > t$, y `mask`, el vector booleano que marca las del primer subconjunto. |
 #
 # **Restricciones:** 0 bucles permitidos.
 # @note-body-end
 function splitDataset(inputs::AbstractMatrix{<:Real}, numFeature::Int, threshold::Real)
+# @note-end
     mask = inputs[:, numFeature] .<= threshold
     return (inputs[mask, :], inputs[.!mask, :], mask)
 end;
 
-# @note-start id=sdb01 color=blue
+# @note-start id=3t6jxq color=blue
 # splitDataset: división de un Batch por atributo y umbral
 # Divide `dataset` en dos subconjuntos de tipo `Batch` según $x_j \le t$ y $x_j > t$.
 #
+# **API pública** (firma pedida en el enunciado). La usan `calculateErrorSplit`
+# (Ejercicios 4 y 5), `buildRegressionTree`, `buildModelTree` y `prune!`.
+#
 # **Entradas**
-# - `dataset`: `Batch`, lote de datos a dividir.
-# - `numFeature`: `Int`, índice del atributo $j$.
-# - `threshold`: `Real`, valor del umbral $t$.
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `dataset` | `Batch` | Lote de datos a dividir. |
+# | `numFeature` | `Int` | Índice del atributo $j$. |
+# | `threshold` | `Real` | Valor del umbral $t$. |
 #
 # **Salida**
-# - `Tuple`: `(leftBatch, rightBatch, mask)`.
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Tuple` | `(leftBatch, rightBatch, mask)`: los dos `Batch` resultantes y la máscara booleana del primero. |
 #
 # **Restricciones:** 0 bucles permitidos.
 # @note-body-end
 function splitDataset(dataset::Batch, numFeature::Int, threshold::Real)
+# @note-end
     _, _, mask = splitDataset(batchInputs(dataset), numFeature, threshold)
     return (selectInstances(dataset, mask), selectInstances(dataset, .!mask), mask)
 end;
 
-# @note-start id=ces01 color=blue
-# calculateErrorSplit: cálculo del error ponderado tras una partición
+# @note-start id=m1h8o7 color=blue
+# calculateErrorSplit: error ponderado de una partición
 # Divide el dataset y calcula la suma ponderada del MSE de cada subconjunto:
 #
 # $$
 # E(j, t) = N_L \cdot \text{MSE}_L + N_R \cdot \text{MSE}_R
 # $$
 #
+# **API pública** (la llama la autoevaluación). También la usan `bestSplit(dataset)`
+# y la versión con `modelOutputs` del Ejercicio 5, cuando el modelo es constante.
+#
 # **Entradas**
-# - `dataset`: `Batch`, conjunto de entrenamiento.
-# - `numFeature`: `Int`, índice del atributo $j$.
-# - `threshold`: `Real`, umbral de división $t$.
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+# | `numFeature` | `Int` | Índice del atributo $j$. |
+# | `threshold` | `Real` | Umbral de división $t$. |
 #
 # **Salida**
-# - `Real`: error ponderado de la partición (del tipo del dataset).
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Real` | Error ponderado de la partición, del tipo de las entradas del dataset. `Inf` si un lado queda vacío. |
 #
 # **Restricciones:** 0 bucles permitidos.
 # @note-body-end
 function calculateErrorSplit(dataset::Batch, numFeature::Int, threshold::Real)
+# @note-end
     leftBatch, rightBatch, _ = splitDataset(dataset, numFeature, threshold)
     nLeft = batchLength(leftBatch)
     nRight = batchLength(rightBatch)
@@ -1705,19 +1753,29 @@ function calculateErrorSplit(dataset::Batch, numFeature::Int, threshold::Real)
     return convert(eltype(batchInputs(dataset)), nLeft * errLeft + nRight * errRight)
 end;
 
-# @note-start id=bs01 color=blue
-# bestSplit: búsqueda exhaustiva de la mejor partición (atributo y umbral)
-# Evalúa todos los atributos y sus umbrales candidatos minimizando el error de partición.
+# @note-start id=3m6qbt color=blue
+# bestSplit: búsqueda exhaustiva de la mejor partición
+# Evalúa todos los atributos y sus umbrales candidatos y se queda con el par
+# (atributo, umbral) que minimiza el error de partición.
+#
+# **API pública** (la llama la autoevaluación). También la usa `buildRegressionTree`.
 #
 # **Entradas**
-# - `dataset`: `Batch`, conjunto de entrenamiento.
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
 #
 # **Salida**
-# - `Tuple{Int, Real}`: `(bestFeature, bestThreshold)`. Si no mejora el error o $N \le 1$, devuelve `(-1, NaN)`.
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Tuple{Int, Real}` | `(bestFeature, bestThreshold)`. Si ninguna partición mejora el error o $N \le 1$, devuelve `(-1, NaN)`. |
 #
 # **Restricciones:** máximo 2 bucles anidados permitidos (atributos y umbrales).
 # @note-body-end
 function bestSplit(dataset::Batch)
+# @note-end
     n = batchLength(dataset)
     T = eltype(batchInputs(dataset))
     if n <= 1
@@ -1746,18 +1804,27 @@ function bestSplit(dataset::Batch)
     return (bestFeature, bestThreshold)
 end;
 
-# @note-start id=brt01 color=blue
-# buildRegressionTree: construcción recursiva de un árbol de regresión
+# @note-start id=2sace5 color=blue
+# buildRegressionTree: construcción recursiva del árbol
 # Construye un árbol de tipo `ModelTree` dividiendo recursivamente el dataset por `bestSplit`
 # hasta cumplir criterios de parada (`max_depth == 0`, `n <= min_samples_leaf`, o no haber split de mejora).
 #
+# **API pública** (la llama la autoevaluación). Se llama a sí misma para construir
+# los dos hijos de cada nodo.
+#
 # **Entradas**
-# - `dataset`: `Batch`, conjunto de entrenamiento.
-# - `max_depth`: `Int = -1`, profundidad máxima permitida.
-# - `min_samples_leaf`: `Int = 1`, número mínimo de instancias por hoja.
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `dataset` | `Batch` | Conjunto de entrenamiento. |
+# | `max_depth` | `Int` | Opcional, por defecto `-1` (sin límite). Profundidad máxima permitida. |
+# | `min_samples_leaf` | `Int` | Opcional, por defecto `1`. Número mínimo de instancias por hoja. |
 #
 # **Salida**
-# - `ModelTree`: raíz del árbol (`ModelTreeNode` o `ModelTreeLeaf`).
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `ModelTree` | Raíz del árbol (`ModelTreeNode` o `ModelTreeLeaf`). En cada nodo y hoja, `model` es la media de los *targets*. |
 #
 # **Restricciones:** 0 bucles permitidos (algoritmo recursivo).
 # @note-body-end
@@ -1765,6 +1832,7 @@ function buildRegressionTree(dataset::Batch;
     max_depth        :: Int = -1,
     min_samples_leaf :: Int =  1
 )
+# @note-end
     n = batchLength(dataset)
     meanTarget = mean(batchTargets(dataset))
 
@@ -1784,26 +1852,77 @@ function buildRegressionTree(dataset::Batch;
     return ModelTreeNode(feature, threshold, meanTarget, leftChild, rightChild)
 end;
 
-# @note-start id=prd01 color=blue
+# @note-start id=4ntwn7 color=blue
 # predict: predicción con valor escalar
 # Devuelve un vector constante con el valor `model` para cada fila de `inputs`.
+#
+# **API pública** (la llama la autoevaluación). También la usa
+# `predict(::ModelTreeLeaf, …)` cuando el modelo de la hoja es un escalar.
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `model` | `Real` | Valor constante que se predice. |
+# | `inputs` | `AbstractMatrix{<:Real}` | Instancias en filas, atributos en columnas. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Vector{<:Real}` | `model` repetido una vez por fila de `inputs`. |
 # @note-body-end
 predict(model::Real, inputs::AbstractMatrix{<:Real}) = fill(model, size(inputs, 1))
+# @note-end
 
-# @note-start id=prd02 color=blue
+# @note-start id=fzu0ez color=blue
 # predict: predicción en nodo hoja
 # Delega la predicción en el modelo interno almacenado en la hoja `tree.model`.
+#
+# **API pública** (la llama la autoevaluación). También la usa
+# `predict(::ModelTreeNode, …)` al llegar a una hoja.
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `tree` | `ModelTreeLeaf` | Hoja del árbol; su campo `model` contiene el modelo interno. |
+# | `inputs` | `AbstractMatrix{<:Real}` | Instancias en filas, atributos en columnas. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `AbstractVector{<:Real}` | Una predicción por fila de `inputs`, la que da `predict(tree.model, inputs)`. |
 # @note-body-end
 predict(tree::ModelTreeLeaf, inputs::AbstractMatrix{<:Real}) = predict(tree.model, inputs)
+# @note-end
 
-# @note-start id=prd03 color=blue
+# @note-start id=q7d2kx color=blue
 # predict: predicción en nodo interno de decisión
 # Divide las instancias por el umbral del nodo, predice recursivamente en cada subárbol
 # y ensambla las predicciones vectorialmente en el orden original.
 #
+# **API pública** (la llama la autoevaluación). Se llama a sí misma en cada
+# subárbol hasta llegar a las hojas.
+#
+# **Entradas**
+#
+# | Parámetro | Tipo | Descripción |
+# |---|---|---|
+# | `tree` | `ModelTreeNode` | Nodo interno: atributo `feature`, umbral `threshold` e hijos `leftChild` y `rightChild`. |
+# | `inputs` | `AbstractMatrix{<:Real}` | Instancias en filas, atributos en columnas. |
+#
+# **Salida**
+#
+# | Tipo | Descripción |
+# |---|---|
+# | `Vector{<:Real}` | Una predicción por fila de `inputs`, en el mismo orden que las filas. |
+#
 # **Restricciones:** 0 bucles permitidos.
 # @note-body-end
 function predict(tree::ModelTreeNode, inputs::AbstractMatrix{<:Real})
+# @note-end
     leftInputs, rightInputs, mask = splitDataset(inputs, tree.feature, tree.threshold)
     if all(mask)
         return predict(tree.leftChild, inputs)
@@ -1929,7 +2048,7 @@ end;
 
 
 # @note-start id=b7ks4w color=blue
-# trainRegressionModel: entrena cualquier modelo según su configuración
+# trainRegressionModel: entrena el modelo de la configuración
 # Punto de entrada genérico para entrenar modelos de regresión. **No entrena
 # nada**: lee el tipo de modelo de `configuration["modelType"]` y delega en el
 # método especializado de ese tipo.
@@ -1972,7 +2091,7 @@ function trainRegressionModel(configuration::Dict, dataset::Batch)
 end;
 
 # @note-start id=n1ru6h color=blue
-# trainRegressionModel: modelo constante (media de los targets)
+# trainRegressionModel: modelo constante (media de targets)
 # El modelo más simple posible: predice siempre la media de las salidas
 # deseadas. Es el que usan los árboles de regresión del Ejercicio 4 y el kNN
 # clásico (media de los vecinos).
@@ -2104,7 +2223,7 @@ function trainRegressionModel(::Val{:DoME}, configuration::Dict, dataset::Batch)
 end;
 
 # @note-start id=h9wc4n color=blue
-# trainRegressionModel: SVR (máquina de vectores de soporte para regresión)
+# trainRegressionModel: SVR de LIBSVM para regresión
 # Entrena un `EpsilonSVR` de LIBSVM a través de MLJ. Busca una función que se
 # equivoque como mucho $\varepsilon$ en cada instancia, penalizando con `C` las
 # que se salen del margen.
@@ -2193,7 +2312,7 @@ end;
 
 
 # @note-start id=d4kn7y color=blue
-# calculateErrorSplit: error de una partición usando las salidas de un modelo
+# calculateErrorSplit: error de partición según un modelo
 # Versión del Ejercicio 4 en la que la predicción de cada lado no es la media de
 # los *targets*, sino las salidas de un modelo de regresión (`modelOutputs`):
 #
@@ -2347,7 +2466,7 @@ function bestSplit(dataset::Batch, modelOutputs::AbstractVector{<:Real})
 end;
 
 # @note-start id=f8nk2c color=blue
-# buildModelTree: construcción recursiva de un árbol de modelos
+# buildModelTree: construcción recursiva del árbol de modelos
 # Como `buildRegressionTree` (Ejercicio 4), pero el modelo de cada nodo y de
 # cada hoja se entrena con `trainRegressionModel(configuration, …)` en lugar de
 # ser la media de los *targets*. Las salidas de ese modelo se usan para buscar
@@ -2467,7 +2586,7 @@ end;
 
 
 # @note-start id=c5mz1b color=blue
-# numInstances: instancias de entrenamiento que llegaron a una hoja
+# numInstances: instancias de entrenamiento en una hoja
 # Devuelve el número de instancias de entrenamiento con las que se creó la hoja.
 #
 # **API pública** (la llama la autoevaluación). La usan `predict` con
@@ -2498,7 +2617,7 @@ function numInstances(tree::ModelTreeLeaf)
 end;
 
 # @note-start id=u3vk2p color=blue
-# numInstances: instancias de entrenamiento que llegaron a un nodo
+# numInstances: instancias de entrenamiento en un nodo
 # Los nodos no guardan el número de instancias, así que se calcula
 # recursivamente como la suma de las de sus dos hijos.
 #
@@ -2759,7 +2878,7 @@ end
 
 
 # @note-start id=r2kd7x color=blue
-# trainRegressionModel: kNN híbrido (modelo global + modelos locales)
+# trainRegressionModel: kNN híbrido, modelo global y locales
 # Crea la estructura `KNN`. El kNN en sí no se entrena: guarda el dataset para
 # buscar vecinos al predecir. Lo único que se entrena aquí es el modelo
 # **global** (si se pide); los modelos **locales** se entrenan en cada

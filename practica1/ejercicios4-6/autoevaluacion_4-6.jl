@@ -3,7 +3,7 @@
 # Archivo de pruebas para realizar autoevaluación de algunas funciones de los ejercicios
 
 # Importamos el archivo con las soluciones a los ejercicios
-include("soluciones.jl");
+include("firmas_modificado.jl");
 #   Cambiar "soluciones.jl" por el nombre del archivo que contenga las funciones desarrolladas
 
 # Fichero de pruebas realizado con la versión 1.11.3 de Julia
@@ -19,7 +19,8 @@ Pkg.status("MLJ")
 
 
 # Para la correcta ejecución de este archivo, los datasets estarán en la siguiente carpeta:
-datasetFolder = "../datasets";
+datasetFolder = joinpath(@__DIR__, "datasets/");
+
 # Cambiadla por la carpeta donde tengáis los datasets
 
 @assert(isdir(datasetFolder))
@@ -83,10 +84,10 @@ model = trainRegressionModel(Dict(
 
 @assert(isapprox(calculateErrorSplit(dataset, 4, 2., predict(model, batchInputs(dataset))), 365.6887101464047 ))
 
-split = bestSplit(dataset, predict(model, batchInputs(dataset)))
-@assert(split[1]==-1 && isnan(split[2]))
-split = bestSplit(selectInstances(dataset, 1:50), predict(model, batchInputs(selectInstances(dataset, 1:50))))
-@assert(split == (3, 1.5))
+bestSplitResult = bestSplit(dataset, predict(model, batchInputs(dataset)))
+@assert(bestSplitResult[1]==-1 && isnan(bestSplitResult[2]))
+bestSplitResult = bestSplit(selectInstances(dataset, 1:50), predict(model, batchInputs(selectInstances(dataset, 1:50))))
+@assert(bestSplitResult == (3, 1.5))
 
 model = trainRegressionModel(Dict(
     "modelType" => :ModelTree,
@@ -173,3 +174,4 @@ model = trainRegressionModel(Dict(
     ), dataset)
 @assert(all(isapprox.(predict(model, batchInputs(selectInstances(dataset, 1:3))), [ 2.8888888888888884, 4.454545454545455, 4.545454545454546 ])))
 
+println("Todas las pruebas han pasado correctamente. ¡Enhorabuena!")
