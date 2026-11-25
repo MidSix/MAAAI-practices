@@ -1,0 +1,7 @@
+technique,test_2d_5nn_acc,train_fit_mode
+PCA,0.3475,Parametrico lineal (fit en 10.310 train)
+LDA,0.5316666666666666,Parametrico supervisado (fit en 10.310 train)
+ICA,0.3725,Parametrico lineal blanqueado (fit en 10.310 train)
+t-SNE,0.5108333333333334,Wrapper OOS kernel k-NN (fit en 1800 train)
+Isomap,0.49916666666666665,Wrapper OOS kernel k-NN (fit en 1800 train)
+LLE,0.3541666666666667,Wrapper OOS pesos locales LLE (fit en 1705 train)
